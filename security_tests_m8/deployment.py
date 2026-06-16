@@ -84,6 +84,7 @@ class DeploymentPreflightReport:
 
     root: Path
     findings: tuple[DeploymentFinding, ...]
+    scanned_files: tuple[Path, ...] = ()
 
     @property
     def errors(self) -> tuple[DeploymentFinding, ...]:
@@ -251,7 +252,9 @@ def _compose_environment_values(path: Path) -> list[EnvValue]:
     return values
 
 
-def _collect_values(root: Path) -> tuple[EnvValue, ...]:
+def _collect_values(
+    root: Path,
+) -> tuple[tuple[EnvValue, ...], tuple[Path, ...]]:
     compose_files = _compose_files(root)
     env_files = _candidate_env_files(root, compose_files)
     values: list[EnvValue] = []
@@ -259,7 +262,8 @@ def _collect_values(root: Path) -> tuple[EnvValue, ...]:
         values.extend(_parse_env_file(path))
     for path in compose_files:
         values.extend(_compose_environment_values(path))
-    return tuple(values)
+    scanned_files = tuple(sorted({*env_files, *compose_files}))
+    return tuple(values), scanned_files
 
 
 def _last_by_key(values: Iterable[EnvValue]) -> dict[str, EnvValue]:
@@ -501,7 +505,7 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     if not deployment_root.exists():
         raise FileNotFoundError(deployment_root)
 
-    values = _collect_values(deployment_root)
+    values, scanned_files = _collect_values(deployment_root)
     latest = _last_by_key(values)
     findings: list[DeploymentFinding] = []
 
@@ -511,5 +515,7 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     _scan_images(findings, deployment_root, values, latest)
     _scan_default_credentials(findings, values)
 
-    return DeploymentPreflightReport(root=deployment_root, findings=tuple(findings))
+    return DeploymentPreflightReport(
+        root=deployment_root, findings=tuple(findings), scanned_files=scanned_files
+    )
 

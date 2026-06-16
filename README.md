@@ -49,10 +49,12 @@ security-tests-m8 preflight --deployment-root .
 security-tests-m8 run --env-file test.env
 ```
 
-`security-tests-m8 run` keeps pytest as the execution engine internally, but it creates the temporary package test module for you. You can still pass pytest selection flags after `--`:
+`security-tests-m8 run` keeps pytest as the execution engine internally, but it creates the temporary package test module for you. By default it runs `-m "live and not destructive"` so repeated CLI runs do not intentionally mutate login lockout, session, or rate-limit state. You can still pass pytest selection flags after `--`:
 
 ```bash
-security-tests-m8 run --env-file test.env -- -m "live and not destructive" -ra
+security-tests-m8 run --env-file test.env -- -ra
+security-tests-m8 run --env-file test.env --include-destructive
+security-tests-m8 run --env-file test.env -- -m live_asymmetric -ra
 ```
 
 Useful commands:
@@ -64,6 +66,31 @@ security-tests-m8 preflight
 security-tests-m8 preflight --deployment-root .
 security-tests-m8 scan-env --deployment-root .
 security-tests-m8 list-suites
+```
+
+## Destructive vs Non-Destructive Tests
+
+Non-destructive tests are designed to be safe for repeated normal validation runs. They read live endpoints, check token structure, verify access control, inspect headers/cookies, and avoid intentionally consuming lockout or revocation state. CLI `run` uses this mode by default with `-m "live and not destructive"`.
+
+Destructive tests intentionally mutate live auth, session, API-key, revocation, or rate-limit state to prove the stack behaves under attack conditions. They may trigger login lockouts, revoke sessions or tokens, consume rate-limit counters, create or mutate test users/API keys, or make later tests fail until the stack state expires or is reset. Run them only when that side effect is acceptable.
+
+Recommended normal run:
+
+```bash
+security-tests-m8 run --env-file test.env
+```
+
+Full mutation-heavy run:
+
+```bash
+security-tests-m8 run --env-file test.env --include-destructive
+pytest --live-env-file test.env --pyargs security_tests_m8.full_security -m live
+```
+
+Equivalent non-destructive pytest run:
+
+```bash
+pytest --live-env-file test.env --pyargs security_tests_m8.full_security -m "live and not destructive"
 ```
 
 ## Quick Start: pytest
@@ -172,11 +199,11 @@ security-tests-m8 preflight --env-file test.env
 security-tests-m8 preflight --deployment-root . --strict-warnings
 ```
 
-It exits `0` when there are no errors and `1` when errors are present. Warnings are printed but only fail the command with `--strict-warnings`.
+It prints the exact env and compose files scanned, all findings, an explicit PASS/FAIL result, the reason for that result, and the required action. It exits `0` when there are no errors and `1` when errors are present. Warnings are printed but only fail the command with `--strict-warnings`.
 
 ## CLI vs pytest Mode
 
-CLI mode is the simplest path for non-power users: point at an env file and run the packaged full suite without adding local pytest files. Pytest mode is the right fit for teams that want custom tests, custom suite subclasses, project-specific fixtures, or direct use of pytest marker expressions.
+CLI mode is the simplest path for non-power users: point at an env file and run the packaged suite without adding local pytest files. It excludes `destructive` tests by default; use `--include-destructive` when you intentionally want full mutation-heavy coverage. Pytest mode is the right fit for teams that want custom tests, custom suite subclasses, project-specific fixtures, or direct use of pytest marker expressions.
 
 Both modes use the same configuration model and the same reusable suites.
 
@@ -480,7 +507,7 @@ def test_custom_protected_route(service_url, admin_headers):
 
 - The tests use the configured dedicated test-only superuser to create tokens and, for some suites, create a temporary regular user.
 - Do not use the stack bootstrap superuser (`FIRST_SUPERUSER`) as the live-test account. With fail-fast preflight enabled, the package refuses that configuration by default.
-- Some tests are marked `destructive` because they exercise revocation, rate limiting, API key mutation, or other live state changes.
+- Some tests are marked `destructive` because they exercise revocation, rate limiting, API key mutation, or other live state changes. CLI `run` excludes these by default; pass `--include-destructive` to run them.
 - Algorithm and token-mode specific tests are skipped automatically when they do not match the detected stack.
 - `repo_root` or `LIVE_TEST_REPO_ROOT` is needed only for tests that try to compare live JWKS keys with committed private keys.
 - `deployment_root` or `LIVE_TEST_DEPLOYMENT_ROOT` enables the Python deployment preflight suite for compose env/image checks.

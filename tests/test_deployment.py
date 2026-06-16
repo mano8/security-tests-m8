@@ -190,3 +190,20 @@ def test_env_discovery_scans_real_env_files_and_ignores_examples(
     assert ("compose.env", "COMPOSE_FILE_SECRET") in placeholder_locations
     assert ("docker-compose.yml", "COMPOSE_ENVIRONMENT_SECRET") in placeholder_locations
     assert not any(path.endswith(".example") for path, _ in placeholder_locations)
+
+
+def test_report_lists_scanned_deployment_files(tmp_path: Path) -> None:
+    _write_good_stack(tmp_path)
+    _write(tmp_path / "grafana/.env", "GF_SECURITY_ADMIN_PASSWORD=StrongPassword1")
+    _write(tmp_path / "auth.env.example", "IGNORED_SECRET=changethis")
+
+    report = scan_deployment(tmp_path)
+    scanned = {path.relative_to(tmp_path).as_posix() for path in report.scanned_files}
+
+    assert scanned == {
+        ".env",
+        "api.env",
+        "auth.env",
+        "docker-compose.yml",
+        "grafana/.env",
+    }

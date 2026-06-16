@@ -15,7 +15,7 @@ It is built for the default hardened stack routes:
 
 The live tests require a dedicated test-only superuser. Do not use `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` from `auth.env`; the package preflight refuses that by default.
 
-CLI mode is recommended for normal users. This local pytest example is for custom tests, extra marker selection, and local suite extension. The unknown-route information-disclosure test now lives in the package full suite and no longer needs to be copied into this folder.
+CLI mode is recommended for normal users and excludes destructive tests by default. This local pytest example is for custom tests, extra marker selection, and local suite extension. The unknown-route information-disclosure test now lives in the package full suite and no longer needs to be copied into this folder.
 
 ## What It Runs
 
@@ -78,6 +78,8 @@ From the hardened stack directory, keep stack configuration in `.env`, `auth.env
 cd /workspace/fa-auth-m8/examples/docker_compose/hardened_m8
 security-tests-m8 preflight --deployment-root .
 security-tests-m8 run --env-file test.env
+# Optional full mutation-heavy run:
+security-tests-m8 run --env-file test.env --include-destructive
 ```
 
 ## Run This Advanced Pytest Example
