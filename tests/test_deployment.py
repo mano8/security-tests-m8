@@ -141,3 +141,52 @@ def test_default_vault_dev_token_fails_preflight(tmp_path: Path) -> None:
     _write(tmp_path / "vault.env", "VAULT_DEV_TOKEN=root")
 
     assert "vault-dev-token-default" in _codes(tmp_path)
+
+
+def test_env_discovery_scans_real_env_files_and_ignores_examples(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path / ".env", "ROOT_SECRET=changethis")
+    _write(tmp_path / "auth.env", "AUTH_SECRET=changethis")
+    _write(tmp_path / "api.env", "API_SECRET=changethis")
+    _write(tmp_path / "media.env", "MEDIA_SECRET=changethis")
+    _write(tmp_path / "grafana/.env", "GRAFANA_SECRET=changethis")
+    _write(tmp_path / "compose.env", "COMPOSE_FILE_SECRET=changethis")
+
+    _write(tmp_path / ".env.example", "EXAMPLE_ROOT_SECRET=changethis")
+    _write(tmp_path / "auth.env.example", "EXAMPLE_AUTH_SECRET=changethis")
+    _write(tmp_path / "api.env.example", "EXAMPLE_API_SECRET=changethis")
+    _write(tmp_path / "media.env.example", "EXAMPLE_MEDIA_SECRET=changethis")
+    _write(tmp_path / "grafana/.env.example", "EXAMPLE_GRAFANA_SECRET=changethis")
+    _write(tmp_path / "compose.env.example", "EXAMPLE_COMPOSE_SECRET=changethis")
+
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          api:
+            image: example/api:1.0.0
+            env_file:
+              - ./compose.env
+              - ./auth.env.example
+              - path: ./api.env.example
+            environment:
+              COMPOSE_ENVIRONMENT_SECRET: changethis
+        """,
+    )
+
+    report = scan_deployment(tmp_path)
+    placeholder_locations = {
+        (finding.path.relative_to(tmp_path).as_posix(), finding.key)
+        for finding in report.findings
+        if finding.code == "placeholder-value"
+    }
+
+    assert (".env", "ROOT_SECRET") in placeholder_locations
+    assert ("auth.env", "AUTH_SECRET") in placeholder_locations
+    assert ("api.env", "API_SECRET") in placeholder_locations
+    assert ("media.env", "MEDIA_SECRET") in placeholder_locations
+    assert ("grafana/.env", "GRAFANA_SECRET") in placeholder_locations
+    assert ("compose.env", "COMPOSE_FILE_SECRET") in placeholder_locations
+    assert ("docker-compose.yml", "COMPOSE_ENVIRONMENT_SECRET") in placeholder_locations
+    assert not any(path.endswith(".example") for path, _ in placeholder_locations)

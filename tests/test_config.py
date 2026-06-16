@@ -1,8 +1,15 @@
+import os
 from pathlib import Path
 
 import pytest
 
-from security_tests_m8 import LiveTestConfig, configure, get_config
+from security_tests_m8 import (
+    LiveTestConfig,
+    configure,
+    configure_from_env,
+    get_config,
+    load_env_file,
+)
 
 _PLACEHOLDER = "pw"
 _OPT_IN_PRIVATE_VALUE = "private"
@@ -115,3 +122,50 @@ def test_configure_accepts_repo_root_string(tmp_path: Path) -> None:
 
     assert config.repo_root == tmp_path.resolve()
     assert config.deployment_root == (tmp_path / "deploy").resolve()
+
+
+def test_load_env_file_preserves_existing_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("LIVE_TEST_ADMIN_EMAIL=file@example.com\n", encoding="utf-8")
+    monkeypatch.setenv("LIVE_TEST_ADMIN_EMAIL", "shell@example.com")
+
+    loaded = load_env_file(env_file)
+
+    assert loaded == {"LIVE_TEST_ADMIN_EMAIL": "file@example.com"}
+    assert os.environ["LIVE_TEST_ADMIN_EMAIL"] == "shell@example.com"
+
+
+def test_configure_from_env_applies_defaults_when_env_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("LIVE_TEST_ADMIN_EMAIL", raising=False)
+    monkeypatch.delenv("LIVE_TEST_FAIL_FAST_PREFLIGHT", raising=False)
+    monkeypatch.delenv("LIVE_TEST_PROTECTED_ENDPOINTS", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("LIVE_TEST_ADMIN_EMAIL=tester@example.com\n", encoding="utf-8")
+
+    config = configure_from_env(
+        env_file,
+        fail_fast_preflight=True,
+        protected_endpoints={"fastapi": ["/category/"]},
+    )
+
+    assert config.admin_email == "tester@example.com"
+    assert config.fail_fast_preflight is True
+    assert config.protected_endpoints == {"fastapi": ["/category/"]}
+
+
+def test_configure_from_env_loads_dotenv_from_current_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("LIVE_TEST_ADMIN_EMAIL", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "LIVE_TEST_ADMIN_EMAIL=cwd@example.com\n", encoding="utf-8"
+    )
+
+    config = configure_from_env()
+
+    assert config.admin_email == "cwd@example.com"

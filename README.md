@@ -21,7 +21,7 @@ The tests run against a real live stack. They do not mock your auth service. You
 - Python 3.11 or newer
 - `pytest`
 - a running FastAPI M8 auth stack
-- an admin account that can log in through `/login/access-token`
+- a dedicated test-only superuser that can log in through `/login/access-token`
 - optional downstream FastAPI M8 service URLs for protected endpoint tests
 
 ## Install
@@ -40,57 +40,48 @@ pip install security-tests-m8
 
 The package registers itself as a pytest plugin through the `pytest11` entry point, so fixtures and markers are available automatically after installation.
 
-## Quick Start
+## Quick Start: CLI
 
-Create or update `tests/live/conftest.py` in the project that will run the tests:
-
-```python
-from security_tests_m8 import configure
-
-configure(
-    auth_base_url="http://localhost:9000/user",
-    service_base_url="http://localhost:9000/fastapi",
-    admin_email="admin@example.com",
-    admin_password="change-me",
-)
-```
-
-Create a live test file and subclass the suites you want:
-
-```python
-from security_tests_m8.suites import (
-    AuthAttackSuite,
-    DeploymentPreflightSuite,
-    JWTStructuralSuite,
-    ProtectedEndpointSuite,
-    SecurityHeadersSuite,
-)
-
-
-class TestAuthAttacks(AuthAttackSuite):
-    pass
-
-
-class TestJWTStructure(JWTStructuralSuite):
-    pass
-
-
-class TestSecurityHeaders(SecurityHeadersSuite):
-    pass
-
-
-class TestDeploymentPreflight(DeploymentPreflightSuite):
-    pass
-
-
-class TestCategoryEndpoint(ProtectedEndpointSuite):
-    endpoint = "/category/"
-```
-
-Run the tests:
+For normal stack validation, create a dedicated live-test env file beside your Docker Compose env files. From a stack directory such as `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`, create `test.env` with the `LIVE_TEST_*` values for the test runner, then run:
 
 ```bash
-pytest tests/live -m live
+security-tests-m8 preflight --deployment-root .
+security-tests-m8 run --env-file test.env
+```
+
+`security-tests-m8 run` keeps pytest as the execution engine internally, but it creates the temporary package test module for you. You can still pass pytest selection flags after `--`:
+
+```bash
+security-tests-m8 run --env-file test.env -- -m "live and not destructive" -ra
+```
+
+Useful commands:
+
+```bash
+security-tests-m8 run
+security-tests-m8 run --env-file test.env
+security-tests-m8 preflight
+security-tests-m8 preflight --deployment-root .
+security-tests-m8 scan-env --deployment-root .
+security-tests-m8 list-suites
+```
+
+## Quick Start: pytest
+
+Use pytest mode when you want custom local tests, local suite subclasses, or direct pytest marker selection:
+
+```bash
+pytest --live-env-file test.env --pyargs security_tests_m8.full_security
+pytest --live-env-file test.env tests/live
+pytest --live-env-file test.env --pyargs security_tests_m8.full_security -m live_deployment
+```
+
+The package registers itself as a pytest plugin through the `pytest11` entry point. `--live-env-file` loads the same live-test env file used by CLI mode, and `--live-env-override` lets file values replace existing process environment variables.
+
+For custom local tests, create a file that imports the packaged suite:
+
+```python
+from security_tests_m8.full_security import *  # noqa: F403
 ```
 
 ## How It Works
@@ -100,6 +91,8 @@ The package has three parts:
 1. Configuration is stored in a process-wide `LiveTestConfig`. You set it with `security_tests_m8.configure(...)` or environment variables.
 2. The pytest plugin exposes fixtures such as `admin_token`, `admin_headers`, `regular_user`, `stack_config`, `service_base_url`, and `service_url`.
 3. Suite classes contain the actual tests. Your project imports a suite and subclasses it, which makes pytest collect those tests in your project.
+
+When `fail_fast_preflight=True`, the plugin checks auth health, configured service availability, dedicated test-superuser login, and bootstrap-superuser misuse before collection. If the stack is unavailable or credentials are wrong, pytest exits before the full suite can trigger lockouts.
 
 During collection, the plugin probes the configured auth stack and auto-skips tests that do not match the current deployment. For example, RS256-only tests are skipped on an HS256 stack, and stateful Redis checks are skipped if Redis is not available.
 
@@ -127,17 +120,19 @@ configure(
 )
 ```
 
-Or with environment variables:
+Or with a `.env` file in the directory where you run pytest:
 
 ```bash
-export LIVE_TEST_AUTH_BASE="http://localhost:9000/user"
-export LIVE_TEST_ADMIN_EMAIL="admin@example.com"
-export LIVE_TEST_ADMIN_PASSWORD="change-me"
-export LIVE_TEST_SVC_BASE="http://localhost:9000/fastapi"
-export LIVE_TEST_TIMEOUT="10"
-export LIVE_TEST_DEPLOYMENT_ROOT="/path/to/repo/examples/docker_compose/hardened_m8"
-export LIVE_TEST_PUBLIC_BASE="https://localhost:4430"
-export LIVE_TEST_PUBLIC_TLS_VERIFY="false"
+LIVE_TEST_AUTH_BASE=http://localhost:9000/user
+LIVE_TEST_ADMIN_EMAIL=tester@example.com
+LIVE_TEST_ADMIN_PASSWORD=change-this-test-password
+LIVE_TEST_SVC_BASE=http://localhost:9000/fastapi
+LIVE_TEST_TIMEOUT=10
+LIVE_TEST_FAIL_FAST_PREFLIGHT=true
+LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER=true
+LIVE_TEST_DEPLOYMENT_ROOT=/path/to/repo/examples/docker_compose/hardened_m8
+LIVE_TEST_PUBLIC_BASE=https://localhost:4430
+LIVE_TEST_PUBLIC_TLS_VERIFY=false
 ```
 
 ### Environment Variables
@@ -157,6 +152,33 @@ export LIVE_TEST_PUBLIC_TLS_VERIFY="false"
 | `LIVE_TEST_PUBLIC_TLS_VERIFY` | Verify TLS certificates for public URL checks | `true` |
 | `LIVE_TEST_PRIVATE_API_SECRET` | Secret header value for private API tests | unset |
 | `LIVE_TEST_REFRESH_SECRET_KEY` | Refresh-token secret used by refresh/cookie tests | unset |
+| `LIVE_TEST_FAIL_FAST_PREFLIGHT` | Abort before collection if auth, services, or credentials are not usable | `false` |
+| `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | Refuse `FIRST_SUPERUSER` from `auth.env` as the test account | `true` |
+| `LIVE_TEST_PROTECTED_ENDPOINTS` | JSON object of service names to protected endpoint arrays | `{}` |
+
+## Choosing An Env File
+
+`test.env` configures the test runner. It should contain `LIVE_TEST_*` values such as `LIVE_TEST_AUTH_BASE`, `LIVE_TEST_ADMIN_EMAIL`, `LIVE_TEST_ADMIN_PASSWORD`, `LIVE_TEST_SVC_BASES`, and `LIVE_TEST_DEPLOYMENT_ROOT`.
+
+Deployment env files configure the stack itself. Files such as `.env`, `auth.env`, `api.env`, `media.env`, and `grafana/.env` are scanned by deployment preflight. Example/template files such as `.env.example`, `auth.env.example`, `api.env.example`, `media.env.example`, and `grafana/.env.example` are intentionally ignored.
+
+## Deployment Env Preflight
+
+The deployment preflight scanner checks compose env files and inline compose `environment:` values for placeholder secrets, duplicate high-value secrets, unsafe production settings, default credentials, and unpinned images in hardened/production stacks.
+
+```bash
+security-tests-m8 preflight --deployment-root .
+security-tests-m8 preflight --env-file test.env
+security-tests-m8 preflight --deployment-root . --strict-warnings
+```
+
+It exits `0` when there are no errors and `1` when errors are present. Warnings are printed but only fail the command with `--strict-warnings`.
+
+## CLI vs pytest Mode
+
+CLI mode is the simplest path for non-power users: point at an env file and run the packaged full suite without adding local pytest files. Pytest mode is the right fit for teams that want custom tests, custom suite subclasses, project-specific fixtures, or direct use of pytest marker expressions.
+
+Both modes use the same configuration model and the same reusable suites.
 
 ## Single-Service Usage
 
@@ -272,6 +294,9 @@ JWT algorithm suites:
 Generic service and deployment suites:
 
 - `ProtectedEndpointSuite`
+- `ConfiguredProtectedEndpointsSuite`
+- `ServiceInfoDisclosureSuite`
+- `ConfiguredServiceInfoDisclosureSuite`
 - `DeploymentPreflightSuite`
 
 ## Full Auth-Service Example
@@ -453,7 +478,8 @@ def test_custom_protected_route(service_url, admin_headers):
 
 ## Notes for Live Stacks
 
-- The tests use the configured admin account to create tokens and, for some suites, create a temporary regular user.
+- The tests use the configured dedicated test-only superuser to create tokens and, for some suites, create a temporary regular user.
+- Do not use the stack bootstrap superuser (`FIRST_SUPERUSER`) as the live-test account. With fail-fast preflight enabled, the package refuses that configuration by default.
 - Some tests are marked `destructive` because they exercise revocation, rate limiting, API key mutation, or other live state changes.
 - Algorithm and token-mode specific tests are skipped automatically when they do not match the detected stack.
 - `repo_root` or `LIVE_TEST_REPO_ROOT` is needed only for tests that try to compare live JWKS keys with committed private keys.
@@ -486,4 +512,4 @@ This example runs the full reusable suite against the `fa-auth-m8` hardened Dock
 - Local workspace path: `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`
 - Example in this repo: [`mano8/security-tests-m8/examples/hardened_m8_full_security`](https://github.com/mano8/security-tests-m8/tree/main/examples/hardened_m8_full_security)
 
-The hardened stack uses RS256 access tokens, stateful token mode, Redis-backed revocation, PostgreSQL, Traefik, Prometheus, Grafana, and the sample `fastapi_full` consumer exposed at `/fastapi`. The example keeps its login, password, and shared secret values as `changethis` for local wiring.
+The hardened stack uses RS256 access tokens, stateful token mode, Redis-backed revocation, PostgreSQL, Traefik, Prometheus, Grafana, and the sample `fastapi_full` consumer exposed at `/fastapi`. The example expects a dedicated test-only superuser and loads `.env` from the directory where pytest is run.

@@ -42,6 +42,8 @@ _TRUTHY = {"1", "true", "yes", "on"}
 _DEFAULT_VAULT_TOKENS = {"root", "changethis", "dev-root-token", "vault-root-token"}
 _DEFAULT_GRAFANA_PASSWORDS = {"admin", "changethis", "password"}
 _DEFAULT_ROOT_DB_PASSWORDS = {"postgres", "password", "changethis"}
+_EXAMPLE_ENV_SUFFIXES = (".env.example",)
+_EXAMPLE_ENV_NAMES = {".env.example", "env.example"}
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,19 @@ def _parse_env_file(path: Path) -> list[EnvValue]:
     return values
 
 
+
+def _is_example_env_file(path: Path) -> bool:
+    return path.name in _EXAMPLE_ENV_NAMES or path.name.endswith(
+        _EXAMPLE_ENV_SUFFIXES
+    )
+
+
+def _is_candidate_env_file(path: Path) -> bool:
+    if _is_example_env_file(path):
+        return False
+    return path.name == ".env" or path.suffix == ".env" or path.name.endswith(".env")
+
+
 def _compose_files(root: Path) -> tuple[Path, ...]:
     names = (
         "compose.yml",
@@ -186,7 +201,11 @@ def _compose_env_file_paths(root: Path, compose_files: Iterable[Path]) -> set[Pa
                     entry = entry.get("path")
                 if isinstance(entry, str):
                     paths.add((compose_path.parent / entry).resolve())
-    return {path for path in paths if path.exists() and path.is_file()}
+    return {
+        path
+        for path in paths
+        if path.exists() and path.is_file() and _is_candidate_env_file(path)
+    }
 
 
 def _candidate_env_files(
@@ -199,7 +218,7 @@ def _candidate_env_files(
             continue
         if ignored_names.intersection(path.parts):
             continue
-        if path.name == ".env" or path.suffix == ".env" or path.name.endswith(".env"):
+        if _is_candidate_env_file(path):
             paths.add(path.resolve())
     return tuple(sorted(paths))
 

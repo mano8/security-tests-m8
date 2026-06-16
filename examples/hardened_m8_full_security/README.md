@@ -13,8 +13,9 @@ It is built for the default hardened stack routes:
 - public HTTPS entrypoint: `https://localhost:4430`
 - stack root and JWT keys: `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`
 
-All login values and shared secrets in this example are intentionally set to `changethis`.
-That is useful for local example wiring only. Do not use these values for a real deployment.
+The live tests require a dedicated test-only superuser. Do not use `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` from `auth.env`; the package preflight refuses that by default.
+
+CLI mode is recommended for normal users. This local pytest example is for custom tests, extra marker selection, and local suite extension. The unknown-route information-disclosure test now lives in the package full suite and no longer needs to be copied into this folder.
 
 ## What It Runs
 
@@ -53,33 +54,16 @@ bash init.sh
 docker compose up -d
 ```
 
-Before the first boot, keep the local test values as `changethis`. In particular, set these values in the hardened stack env files:
+Before running the live tests, create a dedicated superuser for the test suite and put that account in this example's `.env`:
 
 ```ini
-# auth.env
-FIRST_SUPERUSER=changethis
-FIRST_SUPERUSER_PASSWORD=changethis
-PRIVATE_API_SECRET=changethis
-REFRESH_SECRET_KEY=changethis
-SESSION_SECRET=changethis
-TOKENS_ENCRYPTION_KEY=changethis
-EVENT_SIGNING_KEY=changethis
-
-# api.env
-PRIVATE_API_SECRET=changethis
-REFRESH_SECRET_KEY=changethis
-EVENT_SIGNING_KEY=changethis
-
-# .env
-DB_PASSWORD=changethis
-AUTH_DB_PASSWORD=changethis
-API_DB_PASSWORD=changethis
-REDIS_PASSWORD=changethis
+LIVE_TEST_ADMIN_EMAIL=tester@example.com
+LIVE_TEST_ADMIN_PASSWORD=change-this-test-password
 ```
 
-The example test config also uses `LIVE_TEST_ADMIN_EMAIL=changethis` and `LIVE_TEST_ADMIN_PASSWORD=changethis`.
+The account must already exist in the auth stack and must have superuser permissions.
 
-## Run The Example
+## Run With The Recommended CLI Mode
 
 Install `security-tests-m8` in editable mode:
 
@@ -88,19 +72,23 @@ cd /workspace/security-tests-m8
 pip install -e .
 ```
 
-Copy the example env file if you want shell-based configuration:
+From the hardened stack directory, keep stack configuration in `.env`, `auth.env`, `api.env`, `media.env`, and `grafana/.env`, then create a dedicated `test.env` for the live-test runner values:
+
+```bash
+cd /workspace/fa-auth-m8/examples/docker_compose/hardened_m8
+security-tests-m8 preflight --deployment-root .
+security-tests-m8 run --env-file test.env
+```
+
+## Run This Advanced Pytest Example
+
+Use this folder when you want local pytest customization, marker selection, or extra local tests layered on top of the reusable package suite.
+
+Copy the example env file, edit the dedicated test credentials, then run pytest from this directory. The package loads `.env` from the current directory automatically:
 
 ```bash
 cd /workspace/security-tests-m8/examples/hardened_m8_full_security
 cp .env.example .env
-set -a
-. ./.env
-set +a
-```
-
-Then run the live tests:
-
-```bash
 pytest
 ```
 
@@ -121,12 +109,15 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 | --- | --- |
 | `LIVE_TEST_AUTH_BASE` | `http://localhost:9000/user` |
 | `LIVE_TEST_SVC_BASE` | `http://localhost:9000/fastapi` |
-| `LIVE_TEST_ADMIN_EMAIL` | `changethis` |
-| `LIVE_TEST_ADMIN_PASSWORD` | `changethis` |
+| `LIVE_TEST_ADMIN_EMAIL` | `tester@example.com` |
+| `LIVE_TEST_ADMIN_PASSWORD` | `change-this-test-password` |
 | `LIVE_TEST_PUBLIC_BASE` | `https://localhost:4430` |
 | `LIVE_TEST_PUBLIC_TLS_VERIFY` | `false` |
 | `LIVE_TEST_PRIVATE_API_SECRET` | `changethis` |
 | `LIVE_TEST_REFRESH_SECRET_KEY` | `changethis` |
+| `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` |
+| `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` |
+| `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` |
 | `LIVE_TEST_REPO_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` |
 | `LIVE_TEST_DEPLOYMENT_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` |
 

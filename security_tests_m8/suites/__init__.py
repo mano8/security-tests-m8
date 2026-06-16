@@ -8,7 +8,12 @@ from security_tests_m8.suites.algorithms import (
     JWKSSuite,
 )
 from security_tests_m8.suites.deployment import DeploymentPreflightSuite
-from security_tests_m8.suites.service import ProtectedEndpointSuite
+from security_tests_m8.suites.service import (
+    ConfiguredProtectedEndpointsSuite,
+    ConfiguredServiceInfoDisclosureSuite,
+    ProtectedEndpointSuite,
+    ServiceInfoDisclosureSuite,
+)
 from security_tests_m8.suites.token_modes import (
     HybridContractSuite,
     StatefulAccessRevocationSuite,
@@ -51,8 +56,11 @@ __all__ = [
     "MetricsAPISuite",
     "PrivateAPISuite",
     "ProtectedEndpointSuite",
+    "ConfiguredProtectedEndpointsSuite",
+    "ConfiguredServiceInfoDisclosureSuite",
     "RateLimitingSuite",
     "SecurityHeadersSuite",
+    "ServiceInfoDisclosureSuite",
     "StatefulAccessRevocationSuite",
     "StatefulRevocationSuite",
     "StatelessContractSuite",

@@ -19,8 +19,9 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from security_tests_m8._config import get_config
+from security_tests_m8._config import configure_from_env, get_config
 from security_tests_m8._detection import StackInfo, detect_stack
+from security_tests_m8._preflight import PreflightError, run_live_preflight
 from security_tests_m8.forge import forge_asymmetric
 
 _PrivateKey: TypeAlias = RSAPrivateKey | EllipticCurvePrivateKey
@@ -110,8 +111,32 @@ def _find_committed_private_key(
     return None
 
 
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register command line options for env-driven live test configuration."""
+    group = parser.getgroup("security-tests-m8")
+    group.addoption(
+        "--live-env-file",
+        action="store",
+        default=None,
+        help="Load live security test configuration from this env file.",
+    )
+    group.addoption(
+        "--live-env-override",
+        action="store_true",
+        default=False,
+        help="Let --live-env-file override existing process environment variables.",
+    )
+
 def pytest_configure(config: pytest.Config) -> None:
     """Register markers exposed by the package."""
+    env_file = config.getoption("--live-env-file")
+    if env_file:
+        configure_from_env(
+            env_file=env_file,
+            override_env_file=config.getoption("--live-env-override"),
+        )
+
     markers = {
         "live": "live integration test",
         "live_security": "algorithm-independent live security test",
@@ -128,6 +153,17 @@ def pytest_configure(config: pytest.Config) -> None:
     }
     for name, description in markers.items():
         config.addinivalue_line("markers", f"{name}: {description}")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Abort live sessions before collection when the target stack is not runnable."""
+    config = get_config()
+    if not config.fail_fast_preflight:
+        return
+    try:
+        run_live_preflight(config)
+    except PreflightError as exc:
+        pytest.exit(f"Live security preflight failed: {exc}", returncode=2)
 
 
 def pytest_collection_modifyitems(

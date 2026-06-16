@@ -7,6 +7,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 
 def _env_int(name: str, default: int) -> int:
@@ -33,7 +34,41 @@ def _env_service_bases() -> dict[str, str]:
     return {str(key): str(value).rstrip("/") for key, value in decoded.items()}
 
 
+def _env_endpoint_map(name: str) -> dict[str, list[str]]:
+    raw = os.getenv(name)
+    if raw is None:
+        return {}
+    decoded = json.loads(raw)
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    endpoints: dict[str, list[str]] = {}
+    for service, values in decoded.items():
+        if not isinstance(values, list):
+            raise ValueError(f"{name} values must be arrays")
+        endpoints[str(service)] = [str(value) for value in values]
+    return endpoints
+
+
 DEFAULT_PLACEHOLDER_VALUE = "changethis"
+
+_FIELD_ENV_NAMES = {
+    "auth_base_url": ("LIVE_TEST_AUTH_BASE",),
+    "admin_email": ("LIVE_TEST_ADMIN_EMAIL",),
+    "admin_password": ("LIVE_TEST_ADMIN_PASSWORD",),
+    "service_base_url": ("LIVE_TEST_SVC_BASE",),
+    "service_base_urls": ("LIVE_TEST_SVC_BASES",),
+    "default_service": ("LIVE_TEST_DEFAULT_SVC",),
+    "timeout": ("LIVE_TEST_TIMEOUT",),
+    "repo_root": ("LIVE_TEST_REPO_ROOT",),
+    "deployment_root": ("LIVE_TEST_DEPLOYMENT_ROOT",),
+    "public_base_url": ("LIVE_TEST_PUBLIC_BASE",),
+    "public_tls_verify": ("LIVE_TEST_PUBLIC_TLS_VERIFY",),
+    "private_api_secret": ("LIVE_TEST_PRIVATE_API_SECRET",),
+    "refresh_secret_key": ("LIVE_TEST_REFRESH_SECRET_KEY",),
+    "fail_fast_preflight": ("LIVE_TEST_FAIL_FAST_PREFLIGHT",),
+    "forbid_bootstrap_superuser": ("LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER",),
+    "protected_endpoints": ("LIVE_TEST_PROTECTED_ENDPOINTS",),
+}
 
 
 @dataclass(frozen=True)
@@ -53,6 +88,9 @@ class LiveTestConfig:
     public_tls_verify: bool = True
     private_api_secret: str | None = None
     refresh_secret_key: str | None = None
+    fail_fast_preflight: bool = False
+    forbid_bootstrap_superuser: bool = True
+    protected_endpoints: dict[str, list[str]] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> LiveTestConfig:
@@ -82,11 +120,20 @@ class LiveTestConfig:
             public_tls_verify=_env_bool("LIVE_TEST_PUBLIC_TLS_VERIFY", True),
             private_api_secret=os.getenv("LIVE_TEST_PRIVATE_API_SECRET"),
             refresh_secret_key=os.getenv("LIVE_TEST_REFRESH_SECRET_KEY"),
+            fail_fast_preflight=_env_bool("LIVE_TEST_FAIL_FAST_PREFLIGHT", False),
+            forbid_bootstrap_superuser=_env_bool(
+                "LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER", True
+            ),
+            protected_endpoints=_env_endpoint_map("LIVE_TEST_PROTECTED_ENDPOINTS"),
         ).normalized()
 
     def normalized(self) -> LiveTestConfig:
         """Return a copy with URL mappings normalized."""
         urls = {key: value.rstrip("/") for key, value in self.service_base_urls.items()}
+        protected_endpoints = {
+            key: [endpoint for endpoint in endpoints]
+            for key, endpoints in self.protected_endpoints.items()
+        }
         service_base_url = (
             self.service_base_url.rstrip("/") if self.service_base_url else None
         )
@@ -104,6 +151,7 @@ class LiveTestConfig:
             public_base_url=self.public_base_url.rstrip("/")
             if self.public_base_url
             else None,
+            protected_endpoints=protected_endpoints,
         )
 
     def resolve_service_base_url(self, service: str | None = None) -> str:
@@ -142,6 +190,47 @@ def configure(**kwargs: object) -> LiveTestConfig:
         data["service_base_urls"] = dict(data["service_base_urls"])
     _CONFIG = LiveTestConfig(**data).normalized()
     return _CONFIG
+
+
+def load_env_file(path: str | Path, *, override: bool = False) -> dict[str, str]:
+    """Load KEY=VALUE pairs from an env file into ``os.environ``."""
+    env_path = Path(path)
+    loaded: dict[str, str] = {}
+    if not env_path.exists():
+        return loaded
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = stripped.split("=", 1)
+        name = name.strip()
+        value = value.strip().strip("'\"")
+        if not name:
+            continue
+        loaded[name] = value
+        if override or name not in os.environ:
+            os.environ[name] = value
+    return loaded
+
+
+def configure_from_env(
+    env_file: str | Path | None = None,
+    *,
+    override_env_file: bool = False,
+    **defaults: Any,
+) -> LiveTestConfig:
+    """Load an optional env file and configure live tests from env plus defaults."""
+    env_path = Path.cwd() / ".env" if env_file is None else Path(env_file)
+    load_env_file(env_path, override=override_env_file)
+
+    config = LiveTestConfig.from_env()
+    data: dict[str, Any] = {}
+    for field_name, default in defaults.items():
+        env_names = _FIELD_ENV_NAMES.get(field_name, ())
+        if not any(name in os.environ for name in env_names):
+            data[field_name] = default
+
+    return configure(**(config.__dict__ | data))
 
 
 def get_config() -> LiveTestConfig:

@@ -13,9 +13,8 @@ Scenario A — Network-only attacker (JWKS and HTTP access only)
 
 Scenario B — Repo-read attacker (has git clone of this repository)
   Forges tokens using a committed private key matched via JWKS public key
-  (DER identity comparison).  These SHOULD succeed and document a CRITICAL
-  FINDING.  A 200 response proves the committed key is the live key.
-  An unexpected rejection (key already rotated) causes pytest.skip.
+  (DER identity comparison).  A 200 response proves the committed key is the
+  live key and fails the suite. Rejection is the expected secure outcome.
 
 Scenario C — Protocol-level attacks (any attacker)
   Expired token, wrong token type, tampered payload, path-traversal kid.
@@ -89,15 +88,11 @@ class AsymmetricJWTSuite:
             "[CRITICAL FAIL-B02] Asymmetric-to-HS256 confusion succeeded"
         )
 
-    def test_b03_forged_token_with_committed_key_accepted_documents_critical_finding(
+    def test_b03_forged_token_with_committed_key_rejected(
         self, committed_key_forge
     ):
         """
-        CRITICAL FINDING CONFIRMATION — committed private key accepted.
-
-        This test PASSES when a forged token made with a committed private key
-        is accepted by the live auth service. A passing result is therefore a
-        confirmed security breach, not a clean security pass.
+        A forged token made with a repo-visible private key must be rejected.
 
         Discovery: JWKS public key DER bytes matched against committed
         public.pem files via rglob — no env files or stack config read.
@@ -110,26 +105,18 @@ class AsymmetricJWTSuite:
         """
         token = committed_key_forge(is_superuser=True)
         r = requests.get(_ME, headers=_auth(token), timeout=TIMEOUT)
-        assert r.status_code == 200, (
-            "[SECURITY PASS-B03] Forged token was rejected; committed key may not "
-            "match the running stack."
+        assert r.status_code != 200, (
+            "[CRITICAL FAIL-B03] Forged admin JWT signed with a repo-visible "
+            "private key was accepted by the auth service."
         )
-        print(
-            "\n[FINDING CONFIRMED-B03] Forged admin JWT signed with a "
-            "committed private key was accepted by the auth service."
-        )
-        assert r.json().get("is_superuser") is True
 
     def test_b04_forged_token_reaches_admin_endpoint(self, committed_key_forge):
-        """CRITICAL FINDING CONFIRMATION: committed key grants admin access."""
+        """A forged token made with a repo-visible key must not grant admin access."""
         token = committed_key_forge(is_superuser=True)
         r = requests.get(f"{AUTH_BASE}/users/", headers=_auth(token), timeout=TIMEOUT)
-        assert r.status_code == 200, (
-            "[SECURITY PASS-B04] Forged admin token was rejected by admin endpoint."
-        )
-        print(
-            "\n[FINDING CONFIRMED-B04] Forged JWT from committed key "
-            "reached the auth admin endpoint."
+        assert r.status_code != 200, (
+            "[CRITICAL FAIL-B04] Forged JWT from a repo-visible key reached "
+            "the auth admin endpoint."
         )
 
     def test_b05_expired_token_rejected(
@@ -351,16 +338,12 @@ class CrossServiceTokenSuite:
         )
 
     def test_i02_forged_token_accepted_by_fastapi_full(self, committed_key_forge):
-        """CRITICAL FINDING CONFIRMATION: forged token reaches downstream."""
+        """A forged token made with a repo-visible key must not reach downstream."""
         token = committed_key_forge(is_superuser=True)
         r = requests.get(self._SVC_LIST, headers=_auth(token), timeout=TIMEOUT)
-        assert r.status_code == 200, (
-            "[SECURITY PASS-I02] Forged cross-service token was rejected by "
-            "downstream service."
-        )
-        print(
-            "\n[FINDING CONFIRMED-I02] Forged JWT from committed key "
-            "was accepted by downstream service."
+        assert r.status_code != 200, (
+            "[CRITICAL FAIL-I02] Forged JWT from a repo-visible key was "
+            "accepted by downstream service."
         )
 
     def test_i03_alg_none_rejected_by_fastapi_full(self):
