@@ -54,7 +54,7 @@ bash init.sh
 docker compose up -d
 ```
 
-Before running the live tests, create a dedicated superuser for the test suite and put that account in this example's `.env`:
+Before running the live tests, create a dedicated superuser for the test suite. Put that account in the live-test env file you use for the run:
 
 ```ini
 LIVE_TEST_ADMIN_EMAIL=tester@example.com
@@ -76,11 +76,15 @@ From the hardened stack directory, keep stack configuration in `.env`, `auth.env
 
 ```bash
 cd /workspace/fa-auth-m8/examples/docker_compose/hardened_m8
+cp test.env.example test.env
+# Edit test.env with the dedicated test account and, if used, real opt-in secrets.
 security-tests-m8 preflight --deployment-root .
 security-tests-m8 run --env-file test.env
 # Optional full mutation-heavy run:
 security-tests-m8 run --env-file test.env --include-destructive
 ```
+
+Deployment preflight scans non-example `*.env` files under the deployment root, including `test.env` if you keep it there. Do not leave `changethis` or other placeholder values in `test.env`; either replace the opt-in secret values with the real values from `auth.env` / `api.env`, or omit those variables to skip their opt-in checks.
 
 ## Run This Advanced Pytest Example
 
@@ -115,8 +119,8 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 | `LIVE_TEST_ADMIN_PASSWORD` | `change-this-test-password` |
 | `LIVE_TEST_PUBLIC_BASE` | `https://localhost:4430` |
 | `LIVE_TEST_PUBLIC_TLS_VERIFY` | `false` |
-| `LIVE_TEST_PRIVATE_API_SECRET` | `changethis` |
-| `LIVE_TEST_REFRESH_SECRET_KEY` | `changethis` |
+| `LIVE_TEST_PRIVATE_API_SECRET` | real `PRIVATE_API_SECRET`, or unset |
+| `LIVE_TEST_REFRESH_SECRET_KEY` | real `REFRESH_SECRET_KEY`, or unset |
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` |
 | `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` |
@@ -124,3 +128,4 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 | `LIVE_TEST_DEPLOYMENT_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` |
 
 `LIVE_TEST_REPO_ROOT` lets asymmetric-key tests inspect the hardened stack's generated `keys/private.pem` and `keys/public.pem` files.
+`LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in secret-exposure checks. If they are unset, those specific tests skip.
