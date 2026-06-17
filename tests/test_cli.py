@@ -5,9 +5,7 @@ from pathlib import Path
 from security_tests_m8.cli import main
 
 
-def test_preflight_prints_success_summary(
-    capsys, tmp_path: Path, monkeypatch
-) -> None:
+def test_preflight_prints_success_summary(capsys, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
 
     code = main(
@@ -28,15 +26,12 @@ def test_preflight_prints_success_summary(
     assert "Findings: none" in captured.out
     assert "PASS deployment-preflight - deployment passed" in captured.out
     assert (
-        "Reason: scanned files produced no ERROR or WARNING findings."
-        in captured.out
+        "Reason: scanned files produced no ERROR or WARNING findings." in captured.out
     )
     assert "Required action: none." in captured.out
 
 
-def test_preflight_prints_failure_summary(
-    capsys, tmp_path: Path, monkeypatch
-) -> None:
+def test_preflight_prints_failure_summary(capsys, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
     (tmp_path / "auth.env").write_text(
         "REFRESH_SECRET_KEY=changethis\n", encoding="utf-8"
@@ -68,8 +63,7 @@ def test_preflight_prints_warning_pass_summary(
 ) -> None:
     monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
     (tmp_path / "auth.env").write_text(
-        "ENVIRONMENT=production\n"
-        "ACCESS_REVOCATION_FAILURE_MODE=fail_open\n",
+        "ENVIRONMENT=production\nACCESS_REVOCATION_FAILURE_MODE=fail_open\n",
         encoding="utf-8",
     )
 
@@ -92,8 +86,7 @@ def test_preflight_prints_warning_pass_summary(
     )
     assert "PASS deployment-preflight - deployment passed with warnings" in captured.out
     assert (
-        "Reason: no ERROR findings were found; 1 warning does not fail"
-        in captured.out
+        "Reason: no ERROR findings were found; 1 warning does not fail" in captured.out
     )
     assert "Required action: review every WARNING finding listed above." in captured.out
 
@@ -103,8 +96,7 @@ def test_preflight_prints_strict_warning_failure_summary(
 ) -> None:
     monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
     (tmp_path / "auth.env").write_text(
-        "ENVIRONMENT=production\n"
-        "ACCESS_REVOCATION_FAILURE_MODE=fail_open\n",
+        "ENVIRONMENT=production\nACCESS_REVOCATION_FAILURE_MODE=fail_open\n",
         encoding="utf-8",
     )
 
@@ -129,9 +121,7 @@ def test_preflight_prints_strict_warning_failure_summary(
     assert "Required action: fix every WARNING finding listed above" in captured.out
 
 
-def test_run_defaults_to_non_destructive_marker(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_run_defaults_to_non_destructive_marker(tmp_path: Path, monkeypatch) -> None:
     calls: list[list[str]] = []
 
     def fake_pytest_main(args: list[str]) -> int:
@@ -148,9 +138,7 @@ def test_run_defaults_to_non_destructive_marker(
     assert calls[0][1:3] == ["-m", "live and not destructive"]
 
 
-def test_run_honors_explicit_marker_selection(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_run_honors_explicit_marker_selection(tmp_path: Path, monkeypatch) -> None:
     calls: list[list[str]] = []
 
     def fake_pytest_main(args: list[str]) -> int:

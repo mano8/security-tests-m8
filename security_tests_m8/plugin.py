@@ -111,7 +111,6 @@ def _find_committed_private_key(
     return None
 
 
-
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Register command line options for env-driven live test configuration."""
     group = parser.getgroup("security-tests-m8")
@@ -127,6 +126,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Let --live-env-file override existing process environment variables.",
     )
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Register markers exposed by the package."""

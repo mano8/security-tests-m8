@@ -37,7 +37,8 @@ _PLACEHOLDER_COMMENT_WORDS = (
     "replace ",
 )
 _LOCALHOST_TOKENS = ("localhost", "127.0.0.1", "::1")
-_PUBLIC_BIND_IP = "0.0.0.0"  # noqa: S104 - value being detected, not bound.
+# Value being detected in env files, not bound by this package.
+_PUBLIC_BIND_IP = "0.0.0.0"  # noqa: S104  # nosec B104
 _TRUTHY = {"1", "true", "yes", "on"}
 _DEFAULT_VAULT_TOKENS = {"root", "changethis", "dev-root-token", "vault-root-token"}
 _DEFAULT_GRAFANA_PASSWORDS = {"admin", "changethis", "password"}
@@ -143,11 +144,8 @@ def _parse_env_file(path: Path) -> list[EnvValue]:
     return values
 
 
-
 def _is_example_env_file(path: Path) -> bool:
-    return path.name in _EXAMPLE_ENV_NAMES or path.name.endswith(
-        _EXAMPLE_ENV_SUFFIXES
-    )
+    return path.name in _EXAMPLE_ENV_NAMES or path.name.endswith(_EXAMPLE_ENV_SUFFIXES)
 
 
 def _is_candidate_env_file(path: Path) -> bool:
@@ -375,8 +373,7 @@ def _scan_production_policy(
     environment = latest.get("ENVIRONMENT")
     strict = latest.get("STRICT_PRODUCTION_MODE")
     production = (
-        environment is not None
-        and environment.value.strip().lower() == "production"
+        environment is not None and environment.value.strip().lower() == "production"
     )
     strict_mode = _is_truthy(strict.value if strict else None)
     if not production and not strict_mode:
@@ -518,4 +515,3 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     return DeploymentPreflightReport(
         root=deployment_root, findings=tuple(findings), scanned_files=scanned_files
     )
-

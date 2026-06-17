@@ -88,9 +88,7 @@ class AsymmetricJWTSuite:
             "[CRITICAL FAIL-B02] Asymmetric-to-HS256 confusion succeeded"
         )
 
-    def test_b03_forged_token_with_committed_key_rejected(
-        self, committed_key_forge
-    ):
+    def test_b03_forged_token_with_committed_key_rejected(self, committed_key_forge):
         """
         A forged token made with a repo-visible private key must be rejected.
 
