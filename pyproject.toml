@@ -78,4 +78,35 @@ strict = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=security_tests_m8 --cov-report=term-missing"
+addopts = "-p no:security_tests_m8 --cov=security_tests_m8 --cov-report=term-missing --cov-fail-under=100"
+markers = [
+    "live: live integration test",
+    "live_security: algorithm-independent live security test",
+    "live_asymmetric: RS256/ES256 live security test",
+    "live_hs256: HS256 live security test",
+    "live_stateful: stateful token-mode live security test",
+    "live_stateless: stateless token-mode live security test",
+    "live_hybrid: hybrid token-mode live security test",
+    "live_deployment: deployment preflight/static live security test",
+    "require_algorithm(*names): skip unless detected JWT alg matches",
+    "require_token_mode(*names): skip unless detected token mode matches",
+    "require_redis: skip unless health reports Redis available",
+    "destructive: test mutates live auth/session/rate-limit state",
+]
+
+[tool.coverage.run]
+omit = [
+    "security_tests_m8/_client.py",
+    "security_tests_m8/_detection.py",
+    "security_tests_m8/_preflight.py",
+    "security_tests_m8/full_security.py",
+    "security_tests_m8/plugin.py",
+    "security_tests_m8/suites/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_lines = [
+    "if __name__ == .__main__.",
+]

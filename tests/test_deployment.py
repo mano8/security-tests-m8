@@ -1,7 +1,13 @@
 from pathlib import Path
 from textwrap import dedent
 
-from security_tests_m8.deployment import scan_deployment
+import pytest
+
+from security_tests_m8.deployment import (
+    DeploymentFinding,
+    DeploymentPreflightReport,
+    scan_deployment,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -207,3 +213,128 @@ def test_report_lists_scanned_deployment_files(tmp_path: Path) -> None:
         "docker-compose.yml",
         "grafana/.env",
     }
+
+
+def test_finding_format_handles_paths_outside_root_and_missing_key(
+    tmp_path: Path,
+) -> None:
+    finding = DeploymentFinding(
+        code="outside-root",
+        message="outside root",
+        severity="warning",
+        path=tmp_path.parent / "outside.env",
+    )
+
+    assert finding.format(tmp_path).startswith("WARNING outside-root ")
+    assert "outside.env - outside root" in finding.format(tmp_path)
+
+
+def test_report_assert_no_errors_lists_error_findings(tmp_path: Path) -> None:
+    finding = DeploymentFinding(
+        code="boom",
+        message="broken",
+        severity="error",
+        path=tmp_path / "auth.env",
+        key="SECRET",
+    )
+    report = DeploymentPreflightReport(root=tmp_path, findings=(finding,))
+
+    with pytest.raises(AssertionError, match="ERROR boom auth.env:SECRET"):
+        report.assert_no_errors()
+
+
+def test_env_parser_handles_exports_quotes_and_invalid_lines(tmp_path: Path) -> None:
+    env_file = tmp_path / "quoted.env"
+    env_file.write_text(
+        "\n# ignored\nNO_EQUALS\nexport QUOTED='hello'\n =bad\nPLAIN=world\n",
+        encoding="utf-8",
+    )
+
+    report = scan_deployment(tmp_path)
+    values = {(finding.path.name, finding.key) for finding in report.findings}
+
+    assert values == set()
+    scanned = {path.name for path in report.scanned_files}
+    assert "quoted.env" in scanned
+
+
+def test_scan_deployment_rejects_missing_root(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        scan_deployment(tmp_path / "missing")
+
+
+def test_compose_edge_cases_cover_scanner_branches(tmp_path: Path) -> None:
+    _write(tmp_path / ".pytest_cache/ignored.env", "IGNORED_SECRET=changethis")
+    _write(tmp_path / "api.env", "API_SECRET=strong-value")
+    _write(tmp_path / "compose.yml", "[1]")
+    _write(tmp_path / "compose.yaml", "services: []")
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          api:
+            image: example/api:latest
+            env_file: ./api.env
+            environment:
+              - ENVIRONMENT=production
+              - BACKEND_CORS_ORIGINS=http://localhost:5173
+              - SET_DOCS=true
+              - EMPTY_SECRET=
+              - COMMENT_SECRET=# copied from template
+              - PRIVATE_API_SECRET=
+              - GF_SECURITY_ADMIN_PASSWORD=admin
+              - DB_PASSWORD=postgres
+          worker:
+            image: example/worker:1.0.0
+            environment:
+              OPTIONAL_VALUE:
+        """,
+    )
+
+    report = scan_deployment(tmp_path)
+    codes = {finding.code for finding in report.findings}
+    scanned = {path.relative_to(tmp_path).as_posix() for path in report.scanned_files}
+
+    assert "api.env" in scanned
+    assert ".pytest_cache/ignored.env" not in scanned
+    assert {
+        "latest-image",
+        "localhost-cors-production",
+        "docs-enabled-production",
+        "empty-sensitive-value",
+        "placeholder-comment-value",
+        "grafana-admin-password-default",
+        "root-db-password-default",
+    }.issubset(codes)
+
+
+def test_strict_mode_makes_degradation_policy_errors(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "auth.env",
+        """
+        STRICT_PRODUCTION_MODE=true
+        EVENT_SIGNING_ENABLED=false
+        TOKEN_STRICT_VALIDATION=false
+        ACCESS_REVOCATION_FAILURE_MODE=fail_open
+        """,
+    )
+
+    report = scan_deployment(tmp_path)
+    severities = {finding.code: finding.severity for finding in report.findings}
+
+    assert severities["event-signing-disabled"] == "error"
+    assert severities["token-strict-validation-disabled"] == "error"
+    assert severities["revocation-fail-open"] == "error"
+
+
+def test_public_bind_break_glass_allows_production_bind(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".env",
+        """
+        ENVIRONMENT=production
+        API_BIND_IP=0.0.0.0
+        ALLOW_PUBLIC_API_BIND=true
+        """,
+    )
+
+    assert "public-api-bind" not in _codes(tmp_path)
