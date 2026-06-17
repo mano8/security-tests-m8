@@ -42,7 +42,7 @@ The package registers itself as a pytest plugin through the `pytest11` entry poi
 
 ## Quick Start: CLI
 
-For normal stack validation, create a dedicated live-test env file beside your Docker Compose env files. From a stack directory such as `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`, create `test.env` with the `LIVE_TEST_*` values for the test runner, then run:
+For normal stack validation, create a dedicated live-test env file for the test runner. From a stack directory such as `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`, create `test.env` with the `LIVE_TEST_*` values, replace any placeholder secret values, then run:
 
 ```bash
 security-tests-m8 preflight --deployment-root .
@@ -147,7 +147,7 @@ configure(
 )
 ```
 
-Or with a `.env` file in the directory where you run pytest:
+Or with a live-test env file loaded by CLI `run`, pytest `--live-env-file`, or `configure_from_env()`:
 
 ```bash
 LIVE_TEST_AUTH_BASE=http://localhost:9000/user
@@ -185,9 +185,9 @@ LIVE_TEST_PUBLIC_TLS_VERIFY=false
 
 ## Choosing An Env File
 
-`test.env` configures the test runner. It should contain `LIVE_TEST_*` values such as `LIVE_TEST_AUTH_BASE`, `LIVE_TEST_ADMIN_EMAIL`, `LIVE_TEST_ADMIN_PASSWORD`, `LIVE_TEST_SVC_BASES`, and `LIVE_TEST_DEPLOYMENT_ROOT`.
+`test.env` configures the test runner. It should contain `LIVE_TEST_*` values such as `LIVE_TEST_AUTH_BASE`, `LIVE_TEST_ADMIN_EMAIL`, `LIVE_TEST_ADMIN_PASSWORD`, `LIVE_TEST_SVC_BASES`, and `LIVE_TEST_DEPLOYMENT_ROOT`. `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are optional opt-in values; set them only when you want the secret-exposure checks to forge requests with the real stack secrets.
 
-Deployment env files configure the stack itself. Files such as `.env`, `auth.env`, `api.env`, `media.env`, and `grafana/.env` are scanned by deployment preflight. Example/template files such as `.env.example`, `auth.env.example`, `api.env.example`, `media.env.example`, and `grafana/.env.example` are intentionally ignored.
+Deployment env files configure the stack itself. Files such as `.env`, `auth.env`, `api.env`, `media.env`, `grafana/.env`, and any other non-example `*.env` file under the deployment root are scanned by deployment preflight. Example/template files such as `.env.example`, `auth.env.example`, `api.env.example`, `media.env.example`, `grafana/.env.example`, and `test.env.example` are intentionally ignored. If you keep `test.env` under the deployment root, do not leave placeholder values such as `changethis` in it, because preflight will report them.
 
 ## Deployment Env Preflight
 
@@ -512,6 +512,7 @@ def test_custom_protected_route(service_url, admin_headers):
 - `repo_root` or `LIVE_TEST_REPO_ROOT` is needed only for tests that try to compare live JWKS keys with committed private keys.
 - `deployment_root` or `LIVE_TEST_DEPLOYMENT_ROOT` enables the Python deployment preflight suite for compose env/image checks.
 - `public_tls_verify=False` is useful for local HTTPS stacks with self-signed certificates.
+- `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in checks. Leave them unset to skip those checks, or set them to the real values from the target stack.
 
 ## Development
 
@@ -539,4 +540,4 @@ This example runs the full reusable suite against the `fa-auth-m8` hardened Dock
 - Local workspace path: `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`
 - Example in this repo: [`mano8/security-tests-m8/examples/hardened_m8_full_security`](https://github.com/mano8/security-tests-m8/tree/main/examples/hardened_m8_full_security)
 
-The hardened stack uses RS256 access tokens, stateful token mode, Redis-backed revocation, PostgreSQL, Traefik, Prometheus, Grafana, and the sample `fastapi_full` consumer exposed at `/fastapi`. The example expects a dedicated test-only superuser and loads `.env` from the directory where pytest is run.
+The hardened stack uses RS256 access tokens, stateful token mode, Redis-backed revocation, PostgreSQL, Traefik, Prometheus, Grafana, and the sample `fastapi_full` consumer exposed at `/fastapi`. The example expects a dedicated test-only superuser. CLI mode loads the file passed with `--env-file`; the local pytest example loads `.env` from its own directory through `tests/live/conftest.py`.
