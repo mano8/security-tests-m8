@@ -1,0 +1,33 @@
+---
+engines:
+  bandit:
+    enabled: true
+  ruff:
+    enabled: true
+  markdownlint:
+    enabled: true
+  pylint:
+    enabled: false
+  prospector:
+    enabled: false
+  pydocstyle:
+    enabled: false
+  pycodestyle:
+    enabled: false
+  pyflakes:
+    enabled: false
+
+exclude_paths:
+  - "tests/**"
+  # The reusable suites and the pytest plugin/client are live-test execution
+  # code: `assert` is the test mechanism and the "wrong" keys/secrets they use
+  # are deliberate forgery fixtures. Excluded from static analysis for the same
+  # reason `tests/**` is (see [tool.bandit] in pyproject.toml). Ruff still
+  # covers them in the CI `lint` job.
+  - "security_tests_m8/suites/**"
+  - "security_tests_m8/plugin.py"
+  - "security_tests_m8/_client.py"
+  - "dist/**"
+  - "*.egg-info/**"
+  - ".pytest_cache/**"
+  - "**/__pycache__/**"
