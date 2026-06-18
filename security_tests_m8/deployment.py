@@ -182,29 +182,29 @@ def _iter_services(
             yield str(name), service
 
 
+def _env_file_entries(env_file: Any) -> Iterable[Any]:
+    if isinstance(env_file, str):
+        return (env_file,)
+    if isinstance(env_file, list):
+        return env_file
+    return ()
+
+
+def _is_usable_env_file(path: Path) -> bool:
+    return path.exists() and path.is_file() and _is_candidate_env_file(path)
+
+
 def _compose_env_file_paths(root: Path, compose_files: Iterable[Path]) -> set[Path]:
     paths: set[Path] = set()
     for compose_path in compose_files:
         compose = _load_compose(compose_path)
         for _, service in _iter_services(compose):
-            env_file = service.get("env_file")
-            entries: Iterable[Any]
-            if isinstance(env_file, str):
-                entries = (env_file,)
-            elif isinstance(env_file, list):
-                entries = env_file
-            else:
-                entries = ()
-            for entry in entries:
+            for entry in _env_file_entries(service.get("env_file")):
                 if isinstance(entry, Mapping):
                     entry = entry.get("path")
                 if isinstance(entry, str):
                     paths.add((compose_path.parent / entry).resolve())
-    return {
-        path
-        for path in paths
-        if path.exists() and path.is_file() and _is_candidate_env_file(path)
-    }
+    return {path for path in paths if _is_usable_env_file(path)}
 
 
 def _candidate_env_files(
@@ -222,23 +222,28 @@ def _candidate_env_files(
     return tuple(sorted(paths))
 
 
+def _environment_values(environment: Any, path: Path) -> list[EnvValue]:
+    values: list[EnvValue] = []
+    if isinstance(environment, Mapping):
+        for key, value in environment.items():
+            if value is not None:
+                values.append(
+                    EnvValue(key=str(key), value=str(value), path=path, line=None)
+                )
+    elif isinstance(environment, list):
+        for entry in environment:
+            if isinstance(entry, str) and "=" in entry:
+                key, value = entry.split("=", 1)
+                values.append(EnvValue(key=key, value=value, path=path, line=None))
+    return values
+
+
 def _compose_environment_values(path: Path) -> list[EnvValue]:
     values: list[EnvValue] = []
     compose = _load_compose(path)
     for service_name, service in _iter_services(compose):
-        environment = service.get("environment")
-        if isinstance(environment, Mapping):
-            for key, value in environment.items():
-                if value is not None:
-                    values.append(
-                        EnvValue(key=str(key), value=str(value), path=path, line=None)
-                    )
-        elif isinstance(environment, list):
-            for entry in environment:
-                if isinstance(entry, str) and "=" in entry:
-                    key, value = entry.split("=", 1)
-                    values.append(EnvValue(key=key, value=value, path=path, line=None))
-        if "image" in service and isinstance(service["image"], str):
+        values.extend(_environment_values(service.get("environment"), path))
+        if isinstance(service.get("image"), str):
             values.append(
                 EnvValue(
                     key=f"COMPOSE_IMAGE_{service_name}",
@@ -366,19 +371,9 @@ def _scan_duplicate_secret_values(
         )
 
 
-def _scan_production_policy(
-    findings: list[DeploymentFinding],
-    latest: Mapping[str, EnvValue],
+def _scan_production_cors(
+    findings: list[DeploymentFinding], latest: Mapping[str, EnvValue]
 ) -> None:
-    environment = latest.get("ENVIRONMENT")
-    strict = latest.get("STRICT_PRODUCTION_MODE")
-    production = (
-        environment is not None and environment.value.strip().lower() == "production"
-    )
-    strict_mode = _is_truthy(strict.value if strict else None)
-    if not production and not strict_mode:
-        return
-
     for key in ("BACKEND_CORS_ORIGINS", "CORS_ALLOWED_ORIGINS"):
         item = latest.get(key)
         if item and any(token in item.value.lower() for token in _LOCALHOST_TOKENS):
@@ -390,12 +385,16 @@ def _scan_production_policy(
                 item,
             )
 
+
+def _scan_production_docs(
+    findings: list[DeploymentFinding], latest: Mapping[str, EnvValue]
+) -> None:
     docs_allowed = _is_truthy(
         latest["SERVE_DOCS_IN_PRODUCTION"].value
         if "SERVE_DOCS_IN_PRODUCTION" in latest
         else None
     )
-    if production and not docs_allowed:
+    if not docs_allowed:
         for key in ("SET_DOCS", "SET_OPEN_API", "SET_REDOC"):
             item = latest.get(key)
             if item and _is_truthy(item.value):
@@ -408,6 +407,12 @@ def _scan_production_policy(
                     item,
                 )
 
+
+def _scan_degradation_policy(
+    findings: list[DeploymentFinding],
+    latest: Mapping[str, EnvValue],
+    strict_mode: bool,
+) -> None:
     policy_checks = (
         ("EVENT_SIGNING_ENABLED", "false", "event-signing-disabled"),
         ("TOKEN_STRICT_VALIDATION", "false", "token-strict-validation-disabled"),
@@ -424,11 +429,14 @@ def _scan_production_policy(
                 item,
             )
 
+
+def _scan_public_api_bind(
+    findings: list[DeploymentFinding], latest: Mapping[str, EnvValue]
+) -> None:
     bind = latest.get("API_BIND_IP")
     break_glass = latest.get("ALLOW_PUBLIC_API_BIND")
     if (
-        production
-        and bind
+        bind
         and bind.value.strip() == _PUBLIC_BIND_IP
         and not _is_truthy(break_glass.value if break_glass else None)
     ):
@@ -440,6 +448,27 @@ def _scan_production_policy(
             "error",
             bind,
         )
+
+
+def _scan_production_policy(
+    findings: list[DeploymentFinding],
+    latest: Mapping[str, EnvValue],
+) -> None:
+    environment = latest.get("ENVIRONMENT")
+    strict = latest.get("STRICT_PRODUCTION_MODE")
+    production = (
+        environment is not None and environment.value.strip().lower() == "production"
+    )
+    strict_mode = _is_truthy(strict.value if strict else None)
+    if not production and not strict_mode:
+        return
+
+    _scan_production_cors(findings, latest)
+    if production:
+        _scan_production_docs(findings, latest)
+    _scan_degradation_policy(findings, latest, strict_mode)
+    if production:
+        _scan_public_api_bind(findings, latest)
 
 
 def _scan_images(

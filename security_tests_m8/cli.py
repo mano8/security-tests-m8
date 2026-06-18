@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from security_tests_m8._config import configure_from_env, get_config
-from security_tests_m8.deployment import scan_deployment
+from security_tests_m8.deployment import DeploymentPreflightReport, scan_deployment
 
 
 def _strip_separator(args: list[str]) -> list[str]:
@@ -66,10 +66,7 @@ def _format_report_path(root: Path, path: Path) -> str:
         return path.as_posix()
 
 
-def _preflight(args: argparse.Namespace) -> int:
-    root = _deployment_root(args)
-    report = scan_deployment(root)
-    print(f"Deployment preflight: {report.root}")
+def _print_scanned_files(report: DeploymentPreflightReport) -> None:
     if report.scanned_files:
         print(f"Files scanned ({len(report.scanned_files)}):")
         for path in report.scanned_files:
@@ -78,6 +75,8 @@ def _preflight(args: argparse.Namespace) -> int:
         print("Files scanned: none")
         print("Scan note: no deployment env or compose files matched the scanner rules")
 
+
+def _print_findings(report: DeploymentPreflightReport) -> None:
     if report.findings:
         print(f"Findings ({len(report.findings)}):")
         for finding in report.findings:
@@ -85,9 +84,13 @@ def _preflight(args: argparse.Namespace) -> int:
     else:
         print("Findings: none")
 
+
+def _print_preflight_verdict(
+    report: DeploymentPreflightReport, strict_warnings: bool
+) -> int:
     error_count = len(report.errors)
     warning_count = len(report.warnings)
-    fail_for_warnings = args.strict_warnings and warning_count > 0
+    fail_for_warnings = strict_warnings and warning_count > 0
     if error_count or fail_for_warnings:
         strict_note = (
             " because --strict-warnings is enabled" if fail_for_warnings else ""
@@ -100,7 +103,7 @@ def _preflight(args: argparse.Namespace) -> int:
         )
         if error_count:
             print("Required action: fix every ERROR finding listed above.")
-        elif fail_for_warnings:
+        else:
             print(
                 "Required action: fix every WARNING finding listed above, "
                 "or rerun without --strict-warnings."
@@ -120,6 +123,15 @@ def _preflight(args: argparse.Namespace) -> int:
         print("Reason: scanned files produced no ERROR or WARNING findings.")
         print("Required action: none.")
     return 0
+
+
+def _preflight(args: argparse.Namespace) -> int:
+    root = _deployment_root(args)
+    report = scan_deployment(root)
+    print(f"Deployment preflight: {report.root}")
+    _print_scanned_files(report)
+    _print_findings(report)
+    return _print_preflight_verdict(report, args.strict_warnings)
 
 
 def _list_suites(_: argparse.Namespace) -> int:
