@@ -9,6 +9,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from security_tests_m8._requests import install_live_tls_defaults
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -22,6 +24,18 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _env_tls_verify(name: str, default: bool | str) -> bool | str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    lowered = raw.lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return raw
 
 
 def _env_service_bases() -> dict[str, str]:
@@ -53,6 +67,7 @@ DEFAULT_PLACEHOLDER_VALUE = "changethis"
 
 _FIELD_ENV_NAMES = {
     "auth_base_url": ("LIVE_TEST_AUTH_BASE",),
+    "auth_health_url": ("LIVE_TEST_AUTH_HEALTH_URL",),
     "admin_email": ("LIVE_TEST_ADMIN_EMAIL",),
     "admin_password": ("LIVE_TEST_ADMIN_PASSWORD",),
     "service_base_url": ("LIVE_TEST_SVC_BASE",),
@@ -76,6 +91,7 @@ class LiveTestConfig:
     """Configuration used by live security suites and pytest fixtures."""
 
     auth_base_url: str = "http://localhost:9000/user"
+    auth_health_url: str | None = None
     admin_email: str = "admin@example.com"
     admin_password: str = DEFAULT_PLACEHOLDER_VALUE
     service_base_url: str | None = None
@@ -85,7 +101,7 @@ class LiveTestConfig:
     repo_root: Path | None = None
     deployment_root: Path | None = None
     public_base_url: str | None = "https://localhost:4430"
-    public_tls_verify: bool = True
+    public_tls_verify: bool | str = True
     private_api_secret: str | None = None
     refresh_secret_key: str | None = None
     fail_fast_preflight: bool = False
@@ -102,6 +118,9 @@ class LiveTestConfig:
             auth_base_url=os.getenv(
                 "LIVE_TEST_AUTH_BASE", "http://localhost:9000/user"
             ).rstrip("/"),
+            auth_health_url=(
+                os.getenv("LIVE_TEST_AUTH_HEALTH_URL", "").rstrip("/") or None
+            ),
             admin_email=os.getenv("LIVE_TEST_ADMIN_EMAIL", "admin@example.com"),
             admin_password=os.getenv(
                 "LIVE_TEST_ADMIN_PASSWORD", DEFAULT_PLACEHOLDER_VALUE
@@ -117,7 +136,7 @@ class LiveTestConfig:
             public_base_url=os.getenv(
                 "LIVE_TEST_PUBLIC_BASE", "https://localhost:4430"
             ).rstrip("/"),
-            public_tls_verify=_env_bool("LIVE_TEST_PUBLIC_TLS_VERIFY", True),
+            public_tls_verify=_env_tls_verify("LIVE_TEST_PUBLIC_TLS_VERIFY", True),
             private_api_secret=os.getenv("LIVE_TEST_PRIVATE_API_SECRET"),
             refresh_secret_key=os.getenv("LIVE_TEST_REFRESH_SECRET_KEY"),
             fail_fast_preflight=_env_bool("LIVE_TEST_FAIL_FAST_PREFLIGHT", False),
@@ -145,6 +164,9 @@ class LiveTestConfig:
         return replace(
             self,
             auth_base_url=self.auth_base_url.rstrip("/"),
+            auth_health_url=self.auth_health_url.rstrip("/")
+            if self.auth_health_url
+            else None,
             service_base_url=service_base_url,
             service_base_urls=urls,
             default_service=default_service,
@@ -175,6 +197,7 @@ class LiveTestConfig:
 
 
 _CONFIG = LiveTestConfig.from_env()
+install_live_tls_defaults(_CONFIG)
 
 
 def configure(**kwargs: object) -> LiveTestConfig:
@@ -189,6 +212,7 @@ def configure(**kwargs: object) -> LiveTestConfig:
     if isinstance(data.get("service_base_urls"), Mapping):
         data["service_base_urls"] = dict(data["service_base_urls"])
     _CONFIG = LiveTestConfig(**data).normalized()
+    install_live_tls_defaults(_CONFIG)
     return _CONFIG
 
 

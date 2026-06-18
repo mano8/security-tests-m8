@@ -1,10 +1,44 @@
 # security-tests-m8
 
+![CI/CD](https://github.com/mano8/security-tests-m8/actions/workflows/CI.yaml/badge.svg?branch=main)
+[![PyPI version](https://img.shields.io/pypi/v/security-tests-m8)](https://pypi.org/project/security-tests-m8/)
+[![Python](https://img.shields.io/pypi/pyversions/security-tests-m8)](https://pypi.org/project/security-tests-m8/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/security-tests-m8?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/security-tests-m8)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/a412ae6b7fc443de829514a6c62ee5d4)](https://app.codacy.com/gh/mano8/security-tests-m8/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![codecov](https://codecov.io/gh/mano8/security-tests-m8/graph/badge.svg?token=8M408KN18A)](https://codecov.io/gh/mano8/security-tests-m8)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/mano8/security-tests-m8/blob/main/LICENSE)
+
 Reusable live security tests for FastAPI M8 auth and service stacks.
+
+## Table of Contents
+
+- [Summary](#summary)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick Start: CLI](#quick-start-cli)
+- [Destructive vs Non-Destructive Tests](#destructive-vs-non-destructive-tests)
+- [Quick Start: pytest](#quick-start-pytest)
+- [How It Works](#how-it-works)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+- [Choosing An Env File](#choosing-an-env-file)
+- [Deployment Env Preflight](#deployment-env-preflight)
+- [CLI vs pytest Mode](#cli-vs-pytest-mode)
+- [Single-Service Usage](#single-service-usage)
+- [Multi-Service Usage](#multi-service-usage)
+- [Available Suites](#available-suites)
+- [Full Auth-Service Example](#full-auth-service-example)
+- [Pytest Markers](#pytest-markers)
+- [Exposed Fixtures](#exposed-fixtures)
+- [Notes for Live Stacks](#notes-for-live-stacks)
+- [Development](#development)
+- [Examples](#examples)
 
 ## Summary
 
 `security-tests-m8` is a pytest plugin plus a set of reusable test suite classes. It lets any FastAPI M8 project run the same live security checks that were originally written for `fa-auth-m8`, without copying test files between repositories.
+
+It targets **any Docker Compose (or remote) stack whose issuer is `fa-auth-m8` and whose downstream services are built on `fastapi-m8`** — not only the hardened reference stack. The `hardened_m8` deployment is just the example used throughout this README; point the same suites at a minimal, staging, or production stack by changing configuration only. The plugin probes the live stack at collection time and auto-skips checks that do not apply to the detected algorithm, token mode, or available components (see [How It Works](#how-it-works)).
 
 Use it to test:
 
@@ -32,10 +66,10 @@ From this repository:
 pip install -e .
 ```
 
-From another project, install the package in the test environment:
+From another project, install (or update to the latest release) the package in the test environment:
 
 ```bash
-pip install security-tests-m8
+pip install --upgrade security-tests-m8
 ```
 
 The package registers itself as a pytest plugin through the `pytest11` entry point, so fixtures and markers are available automatically after installation.
@@ -135,15 +169,15 @@ from security_tests_m8 import configure
 configure(
     auth_base_url="http://localhost:9000/user",
     admin_email="admin@example.com",
-    admin_password="change-me",
+    admin_password="changethis",
     service_base_url="http://localhost:9000/fastapi",
     timeout=10,
     repo_root=Path(__file__).parents[2],
     deployment_root=Path(__file__).parents[2] / "examples/docker_compose/hardened_m8",
     public_base_url="https://localhost:4430",
     public_tls_verify=False,
-    private_api_secret="change-me",
-    refresh_secret_key="change-me",
+    private_api_secret="changethis",
+    refresh_secret_key="changethis",
 )
 ```
 
@@ -151,6 +185,7 @@ Or with a live-test env file loaded by CLI `run`, pytest `--live-env-file`, or `
 
 ```bash
 LIVE_TEST_AUTH_BASE=http://localhost:9000/user
+LIVE_TEST_AUTH_HEALTH_URL=http://localhost:9000/user/health/
 LIVE_TEST_ADMIN_EMAIL=tester@example.com
 LIVE_TEST_ADMIN_PASSWORD=change-this-test-password
 LIVE_TEST_SVC_BASE=http://localhost:9000/fastapi
@@ -162,11 +197,17 @@ LIVE_TEST_PUBLIC_BASE=https://localhost:4430
 LIVE_TEST_PUBLIC_TLS_VERIFY=false
 ```
 
+For local HTTPS stacks that use a self-signed Traefik certificate, set
+`LIVE_TEST_PUBLIC_TLS_VERIFY=false` to disable verification for the configured
+live-test target URLs, or set it to a certificate bundle path such as
+`/path/to/hardened_m8/traefik/certs/local.crt`.
+
 ### Environment Variables
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `LIVE_TEST_AUTH_BASE` | Base URL for the auth service | `http://localhost:9000/user` |
+| `LIVE_TEST_AUTH_HEALTH_URL` | Optional private/internal auth health URL used for readiness and stack detection | unset |
 | `LIVE_TEST_ADMIN_EMAIL` | Admin login email | `admin@example.com` |
 | `LIVE_TEST_ADMIN_PASSWORD` | Admin login password | `changethis` |
 | `LIVE_TEST_SVC_BASE` | Single/default downstream service URL | unset |
@@ -176,7 +217,7 @@ LIVE_TEST_PUBLIC_TLS_VERIFY=false
 | `LIVE_TEST_REPO_ROOT` | Repository root used to discover committed JWT keys | unset |
 | `LIVE_TEST_DEPLOYMENT_ROOT` | Compose deployment directory used by `DeploymentPreflightSuite` | unset |
 | `LIVE_TEST_PUBLIC_BASE` | Public HTTPS entrypoint for public/private route checks | `https://localhost:4430` |
-| `LIVE_TEST_PUBLIC_TLS_VERIFY` | Verify TLS certificates for public URL checks | `true` |
+| `LIVE_TEST_PUBLIC_TLS_VERIFY` | TLS verification setting for configured live-test HTTPS target URLs; use `false` or a CA bundle path for local self-signed stacks | `true` |
 | `LIVE_TEST_PRIVATE_API_SECRET` | Secret header value for private API tests | unset |
 | `LIVE_TEST_REFRESH_SECRET_KEY` | Refresh-token secret used by refresh/cookie tests | unset |
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | Abort before collection if auth, services, or credentials are not usable | `false` |
@@ -541,3 +582,8 @@ This example runs the full reusable suite against the `fa-auth-m8` hardened Dock
 - Example in this repo: [`mano8/security-tests-m8/examples/hardened_m8_full_security`](https://github.com/mano8/security-tests-m8/tree/main/examples/hardened_m8_full_security)
 
 The hardened stack uses RS256 access tokens, stateful token mode, Redis-backed revocation, PostgreSQL, Traefik, Prometheus, Grafana, and the sample `fastapi_full` consumer exposed at `/fastapi`. The example expects a dedicated test-only superuser. CLI mode loads the file passed with `--env-file`; the local pytest example loads `.env` from its own directory through `tests/live/conftest.py`.
+
+`hardened_m8` is only the reference target. The same example runs against **any compose stack that uses `fa-auth-m8` as the issuer and `fastapi-m8`-based consumers** — minimal, staging, or production — by adapting configuration only (auth/service URLs, protected endpoints, deployment root, and TLS settings). Two ready-to-adapt copies of this example live next to the stacks they test:
+
+- [`fa-auth-m8/examples/docker_compose/shared_live_tests`](https://github.com/mano8/fa-auth-m8/tree/main/examples/docker_compose/shared_live_tests)
+- [`media-service-m8/docker_compose/shared_live_tests`](https://github.com/mano8/media-service-m8/tree/main/docker_compose/shared_live_tests)

@@ -2,6 +2,12 @@
 
 This example runs the full `security-tests-m8` live security suite against the `fa-auth-m8` hardened Docker Compose stack.
 
+> **This example is not hardened-only.** `hardened_m8` is the reference target,
+> but the exact same suite runs against **any compose stack that uses
+> `fa-auth-m8` as the issuer and `fastapi-m8`-based consumers** (minimal,
+> staging, or production). Only configuration changes — see
+> [Adapting To Another Stack](#adapting-to-another-stack).
+
 - Tested compose stack on GitHub: [`mano8/fa-auth-m8/examples/docker_compose/hardened_m8`](https://github.com/mano8/fa-auth-m8/tree/main/examples/docker_compose/hardened_m8)
 - Local compose stack path: `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8`
 - Example folder on GitHub: [`mano8/security-tests-m8/examples/hardened_m8_full_security`](https://github.com/mano8/security-tests-m8/tree/main/examples/hardened_m8_full_security)
@@ -129,3 +135,29 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 
 `LIVE_TEST_REPO_ROOT` lets asymmetric-key tests inspect the hardened stack's generated `keys/private.pem` and `keys/public.pem` files.
 `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in secret-exposure checks. If they are unset, those specific tests skip.
+
+## Adapting To Another Stack
+
+Nothing here is specific to `hardened_m8` beyond the configuration values. To
+point this example at a different `fa-auth-m8` + `fastapi-m8` stack, copy this
+folder (or just its `.env`) and change configuration only:
+
+1. **Auth URL** — set `LIVE_TEST_AUTH_BASE` to your issuer's public base
+   (for example `https://auth.example.com/user`).
+2. **Service URL(s)** — set `LIVE_TEST_SVC_BASE` (single service) or
+   `LIVE_TEST_SVC_BASES` + `LIVE_TEST_DEFAULT_SVC` (named map) to your
+   `fastapi-m8` consumers.
+3. **Protected endpoints** — set `LIVE_TEST_PROTECTED_ENDPOINTS` to the real
+   read endpoints of each service so `ConfiguredProtectedEndpointsSuite` covers
+   them.
+4. **Public entrypoint / TLS** — set `LIVE_TEST_PUBLIC_BASE` and, for
+   self-signed local certs, `LIVE_TEST_PUBLIC_TLS_VERIFY=false` (or a CA bundle
+   path); for a real CA, leave verification on.
+5. **Roots** — point `LIVE_TEST_DEPLOYMENT_ROOT` at the target compose
+   directory for deployment preflight, and `LIVE_TEST_REPO_ROOT` at the stack
+   that holds the committed JWT keys (only needed for the asymmetric key-leak
+   checks).
+
+The suites that do not match the detected algorithm, token mode, or available
+components (Redis, JWKS, private API) skip automatically, so the same file works
+across HS256/RS256/ES256 and stateless/stateful/hybrid stacks without edits.

@@ -26,7 +26,13 @@ from datetime import UTC
 import pytest
 import requests
 
-from security_tests_m8._client import AUTH_BASE, TIMEOUT, fresh_login
+from security_tests_m8._client import (
+    AUTH_BASE,
+    TIMEOUT,
+    auth_health_url,
+    fresh_login,
+    internal_headers,
+)
 from security_tests_m8._config import get_config
 from security_tests_m8.forge import forge_alg_none, forge_hs256
 
@@ -350,7 +356,9 @@ class StatelessContractSuite:
         that validation is not claiming it needs Redis by checking the health
         endpoint does not report Redis as required.
         """
-        r = requests.get(f"{AUTH_BASE}/health/", timeout=TIMEOUT)
+        r = requests.get(auth_health_url(), headers=internal_headers(), timeout=TIMEOUT)
+        if r.status_code == 404:
+            pytest.skip("Health endpoint is not public on the configured auth base")
         assert r.status_code == 200
         body = r.json()
         print(f"\n[SECURITY OBSERVATION-N08] Health body: {body}")

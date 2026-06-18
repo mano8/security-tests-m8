@@ -25,8 +25,18 @@ def test_single_service_base_normalized_and_resolved() -> None:
     ).normalized()
 
     assert config.auth_base_url == "http://auth"
+    assert config.auth_health_url is None
     assert config.resolve_service_base_url() == "http://svc"
     assert config.service_base_urls["default"] == "http://svc"
+
+
+def test_auth_health_url_normalized() -> None:
+    config = LiveTestConfig(
+        auth_base_url="http://auth/",
+        auth_health_url="http://auth-internal/health/",
+    ).normalized()
+
+    assert config.auth_health_url == "http://auth-internal/health"
 
 
 def test_named_service_resolution_prefers_requested_service() -> None:
@@ -57,6 +67,7 @@ def test_configure_updates_singleton(tmp_path: Path) -> None:
 
     config = get_config()
     assert config.auth_base_url == "http://auth"
+    assert config.auth_health_url is None
     assert config.repo_root == tmp_path.resolve()
     assert config.resolve_service_base_url() == "http://svc"
 
@@ -65,6 +76,7 @@ def test_from_env_parses_all_overrides(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("LIVE_TEST_AUTH_BASE", "http://auth/")
+    monkeypatch.setenv("LIVE_TEST_AUTH_HEALTH_URL", "http://auth-internal/health/")
     monkeypatch.setenv("LIVE_TEST_ADMIN_EMAIL", "ops@example.com")
     monkeypatch.setenv("LIVE_TEST_ADMIN_PASSWORD", _PLACEHOLDER)
     monkeypatch.setenv("LIVE_TEST_SVC_BASE", "http://default/")
@@ -81,6 +93,7 @@ def test_from_env_parses_all_overrides(
     config = LiveTestConfig.from_env()
 
     assert config.auth_base_url == "http://auth"
+    assert config.auth_health_url == "http://auth-internal/health"
     assert config.admin_email == "ops@example.com"
     assert config.admin_password == _PLACEHOLDER
     assert config.timeout == 3
@@ -91,6 +104,37 @@ def test_from_env_parses_all_overrides(
     assert config.private_api_secret == _OPT_IN_PRIVATE_VALUE
     assert config.refresh_secret_key == _OPT_IN_REFRESH_VALUE
     assert config.resolve_service_base_url() == "http://catalog"
+
+
+def test_from_env_parses_boolean_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LIVE_TEST_FAIL_FAST_PREFLIGHT", "true")
+
+    config = LiveTestConfig.from_env()
+
+    assert config.fail_fast_preflight is True
+
+
+def test_from_env_accepts_tls_verify_bundle_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bundle = tmp_path / "local.crt"
+    monkeypatch.setenv("LIVE_TEST_PUBLIC_TLS_VERIFY", str(bundle))
+
+    config = LiveTestConfig.from_env()
+
+    assert config.public_tls_verify == str(bundle)
+
+
+def test_from_env_accepts_tls_verify_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LIVE_TEST_PUBLIC_TLS_VERIFY", "true")
+
+    config = LiveTestConfig.from_env()
+
+    assert config.public_tls_verify is True
 
 
 def test_env_service_bases_requires_json_object(
@@ -153,6 +197,10 @@ def test_configure_accepts_repo_root_string(tmp_path: Path) -> None:
 
     assert config.repo_root == tmp_path.resolve()
     assert config.deployment_root == (tmp_path / "deploy").resolve()
+
+
+def test_load_env_file_missing_path_returns_empty(tmp_path: Path) -> None:
+    assert load_env_file(tmp_path / "missing.env") == {}
 
 
 def test_load_env_file_preserves_existing_env(

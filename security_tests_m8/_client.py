@@ -33,6 +33,20 @@ def timeout() -> int:
     return get_config().timeout
 
 
+def auth_health_url() -> str:
+    """Return the configured auth health/readiness URL."""
+    config = get_config()
+    return config.auth_health_url or f"{config.auth_base_url}/health"
+
+
+def internal_headers() -> dict[str, str]:
+    """Return private API headers when a private secret is configured."""
+    secret = get_config().private_api_secret
+    if not secret:
+        return {}
+    return {"X-Internal-Token": secret}
+
+
 def auth_header(bearer: str) -> dict[str, str]:
     """Return an Authorization header dict for the given bearer token."""
     return {"Authorization": f"Bearer {bearer}"}

@@ -24,19 +24,20 @@ classifiers = [
 ]
 dependencies = [
     "cryptography>=42.0",
-    "pyjwt>=2.8",
-    "pytest>=8.0",
-    "pyyaml>=6.0",
-    "requests>=2.31",
+    "PyJWT>=2.13.0",
+    "pytest>=9.0.3",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "bandit>=1.8.0",
-    "coverage>=7.0",
-    "mypy>=1.14.0",
-    "pytest-cov>=6.0",
-    "ruff>=0.9.0",
+    "bandit>=1.9.4",
+    "mypy>=2.1.0",
+    "coverage>=7.14.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.15",
+    "pip-audit>=2.7.3",
 ]
 
 [project.scripts]
@@ -45,20 +46,30 @@ security-tests-m8 = "security_tests_m8.cli:main"
 [project.entry-points."pytest11"]
 security_tests_m8 = "security_tests_m8.plugin"
 
+[project.urls]
+Homepage = "https://github.com/mano8/security_tests_m8"
+Repository = "https://github.com/mano8/security_tests_m8"
+"Issue Tracker" = "https://github.com/mano8/security_tests_m8/issues"
+
+
 [tool.hatch.build.targets.wheel]
 packages = ["security_tests_m8"]
 
+# ─── Ruff ────────────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 88
+target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP", "C90", "D", "S"]
+select = ["E", "F", "I", "W", "C90", "D"]
 ignore = [
+    "E501",
+    # missing docstrings — too strict for library internals and magic methods
     "D100", "D104", "D105", "D107",
-    "D203", "D211", "D212", "D215",
-    "D401", "D403", "D404", "D415", "D416", "D417",
-    "S101",
-    "S113",
+    # google-style conflicts — explicit so Codacy honours them even without convention support
+    "D203", "D213", "D215", "D301",
+    "D401", "D404", "D406", "D407", "D408", "D409",
+    "D413", "D415", "D416", "D417",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -68,6 +79,9 @@ ignore = [
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.ruff.lint.isort]
 known-first-party = ["security_tests_m8"]
 
@@ -75,6 +89,16 @@ known-first-party = ["security_tests_m8"]
 python_version = "3.11"
 ignore_missing_imports = true
 strict = false
+
+# ─── Bandit ──────────────────────────────────────────────────────────────────
+# This package IS live-test tooling. In the reusable suites, `assert` is the
+# test mechanism (B101), and the JWTs/keys/secrets they build are deliberate
+# "wrong" forgery fixtures used to prove the stack rejects them (B105/B106/B107).
+# These are not real credentials, so the checks are suppressed for scans that
+# read this config (run `bandit -c pyproject.toml -r security_tests_m8`).
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B105", "B106", "B107"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -99,6 +123,7 @@ omit = [
     "security_tests_m8/_client.py",
     "security_tests_m8/_detection.py",
     "security_tests_m8/_preflight.py",
+    "security_tests_m8/_requests.py",
     "security_tests_m8/full_security.py",
     "security_tests_m8/plugin.py",
     "security_tests_m8/suites/*",

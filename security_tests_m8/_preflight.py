@@ -39,23 +39,38 @@ def _ensure_not_bootstrap_superuser(config: LiveTestConfig) -> None:
         )
 
 
+def _internal_headers(config: LiveTestConfig) -> dict[str, str]:
+    if not config.private_api_secret:
+        return {}
+    return {"X-Internal-Token": config.private_api_secret}
+
+
 def _check_auth_available(config: LiveTestConfig) -> None:
-    try:
-        response = requests.get(
-            f"{config.auth_base_url}/health/", timeout=config.timeout
-        )
-    except requests.RequestException as exc:
-        raise PreflightError(
-            f"Auth API is not reachable at {config.auth_base_url}: {exc}"
-        ) from exc
-    if response.status_code >= 500:
-        raise PreflightError(
-            f"Auth API health check returned {response.status_code}: {response.text}"
-        )
-    if response.status_code not in (200, 204):
-        raise PreflightError(
-            f"Auth API health check failed with {response.status_code}: {response.text}"
-        )
+    health_url = config.auth_health_url or f"{config.auth_base_url}/health"
+    probes: tuple[tuple[str, dict[str, str]], ...] = (
+        (health_url, _internal_headers(config)),
+        (f"{config.auth_base_url}/meta", {}),
+    )
+    failures: list[str] = []
+    for url, headers in probes:
+        try:
+            response = requests.get(url, headers=headers, timeout=config.timeout)
+        except requests.RequestException as exc:
+            failures.append(f"{url}: {exc}")
+            continue
+        if response.status_code in (200, 204):
+            return
+        if response.status_code >= 500:
+            raise PreflightError(
+                f"Auth API readiness probe {url} returned "
+                f"{response.status_code}: {response.text}"
+            )
+        failures.append(f"{url}: {response.status_code} {response.text}")
+
+    raise PreflightError(
+        "Auth API is not reachable on health or meta readiness probes: "
+        + "; ".join(failures)
+    )
 
 
 def _check_services_available(config: LiveTestConfig) -> None:

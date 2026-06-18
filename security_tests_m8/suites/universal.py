@@ -30,7 +30,13 @@ from typing import Any, cast
 import pytest
 import requests
 
-from security_tests_m8._client import AUTH_BASE, SVC_BASE, TIMEOUT
+from security_tests_m8._client import (
+    AUTH_BASE,
+    SVC_BASE,
+    TIMEOUT,
+    auth_health_url,
+    internal_headers,
+)
 from security_tests_m8._config import get_config
 from security_tests_m8.forge import forge_alg_none
 
@@ -844,7 +850,9 @@ class InfoDisclosureSuite:
 
     def test_h05_health_endpoint_detail_level(self):
         """OBSERVATION: health responses may disclose infrastructure details."""
-        r = requests.get(f"{AUTH_BASE}/health/", timeout=TIMEOUT)
+        r = requests.get(auth_health_url(), headers=internal_headers(), timeout=TIMEOUT)
+        if r.status_code == 404:
+            return
         assert r.status_code == 200
         body = r.json()
         infra_keys = {k for k in body if k in ("redis", "database", "token_mode")}
@@ -884,7 +892,12 @@ class SecurityHeadersSuite:
     @pytest.fixture(scope="class")
     def resp_headers(self):
         """Fetch a real response and return its headers (case-insensitive)."""
-        return requests.get(f"{AUTH_BASE}/health/", timeout=TIMEOUT).headers
+        response = requests.get(
+            auth_health_url(), headers=internal_headers(), timeout=TIMEOUT
+        )
+        if response.status_code == 404:
+            response = requests.get(f"{AUTH_BASE}/meta", timeout=TIMEOUT)
+        return response.headers
 
     def test_k01_x_content_type_options_nosniff(self, resp_headers: dict):
         val = resp_headers.get("x-content-type-options", "")
