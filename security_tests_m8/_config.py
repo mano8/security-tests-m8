@@ -65,6 +65,9 @@ def _env_endpoint_map(name: str) -> dict[str, list[str]]:
 
 DEFAULT_PLACEHOLDER_VALUE = "changethis"
 
+INTERNAL_TOKEN_HEADER = "X-Internal-Token"
+INTERNAL_CLIENT_HEADER = "X-Internal-Client"
+
 _FIELD_ENV_NAMES = {
     "auth_base_url": ("LIVE_TEST_AUTH_BASE",),
     "auth_health_url": ("LIVE_TEST_AUTH_HEALTH_URL",),
@@ -79,6 +82,8 @@ _FIELD_ENV_NAMES = {
     "public_base_url": ("LIVE_TEST_PUBLIC_BASE",),
     "public_tls_verify": ("LIVE_TEST_PUBLIC_TLS_VERIFY",),
     "private_api_secret": ("LIVE_TEST_PRIVATE_API_SECRET",),
+    "private_api_client_id": ("LIVE_TEST_PRIVATE_API_CLIENT_ID",),
+    "health_detail_credential": ("LIVE_TEST_HEALTH_DETAIL_CREDENTIAL",),
     "refresh_secret_key": ("LIVE_TEST_REFRESH_SECRET_KEY",),
     "fail_fast_preflight": ("LIVE_TEST_FAIL_FAST_PREFLIGHT",),
     "forbid_bootstrap_superuser": ("LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER",),
@@ -103,6 +108,8 @@ class LiveTestConfig:
     public_base_url: str | None = "https://localhost:4430"
     public_tls_verify: bool | str = True
     private_api_secret: str | None = None
+    private_api_client_id: str | None = None
+    health_detail_credential: str | None = None
     refresh_secret_key: str | None = None
     fail_fast_preflight: bool = False
     forbid_bootstrap_superuser: bool = True
@@ -138,6 +145,8 @@ class LiveTestConfig:
             ).rstrip("/"),
             public_tls_verify=_env_tls_verify("LIVE_TEST_PUBLIC_TLS_VERIFY", True),
             private_api_secret=os.getenv("LIVE_TEST_PRIVATE_API_SECRET"),
+            private_api_client_id=os.getenv("LIVE_TEST_PRIVATE_API_CLIENT_ID"),
+            health_detail_credential=os.getenv("LIVE_TEST_HEALTH_DETAIL_CREDENTIAL"),
             refresh_secret_key=os.getenv("LIVE_TEST_REFRESH_SECRET_KEY"),
             fail_fast_preflight=_env_bool("LIVE_TEST_FAIL_FAST_PREFLIGHT", False),
             forbid_bootstrap_superuser=_env_bool(
@@ -194,6 +203,48 @@ class LiveTestConfig:
             "No service URL configured. Set LIVE_TEST_SVC_BASE or "
             "LIVE_TEST_SVC_BASES, or call configure(service_base_url=...)."
         )
+
+    def internal_headers(self) -> dict[str, str]:
+        """Return private-API auth headers for the configured consumer model.
+
+        Emits ``X-Internal-Token`` when a private secret is set, and adds
+        ``X-Internal-Client`` when a consumer id is configured — the
+        per-consumer model required by fa-auth-m8 >= 1.0.0 (no shared-secret
+        fallback). With no secret configured the probe stays unauthenticated.
+        """
+        if not self.private_api_secret:
+            return {}
+        headers = {INTERNAL_TOKEN_HEADER: self.private_api_secret}
+        if self.private_api_client_id:
+            headers[INTERNAL_CLIENT_HEADER] = self.private_api_client_id
+        return headers
+
+    def health_detail_headers(self) -> dict[str, str]:
+        """Return headers that unlock the deep ``/health`` infrastructure detail.
+
+        fa-auth-m8 >= 1.0.0 gates the detail body (token mode, Redis/DB
+        reachability, degradation modes) on a dedicated ``HEALTH_DETAIL_CREDENTIAL``
+        sent via ``X-Internal-Token`` — decoupled from ``PRIVATE_API_SECRET``
+        (plan 9.3). Probes that read health detail (stack detection, token-mode
+        and disclosure suites) must present that credential. Falls back to
+        ``private_api_secret`` for legacy stacks that still reuse it for the
+        health-detail gate; empty when neither is configured (shallow status only).
+        """
+        credential = self.health_detail_credential or self.private_api_secret
+        if not credential:
+            return {}
+        return {INTERNAL_TOKEN_HEADER: credential}
+
+    def legacy_internal_headers(self) -> dict[str, str]:
+        """Return the legacy ``X-Internal-Token``-only private-API headers.
+
+        Always omits ``X-Internal-Client`` so negative/legacy-detection probes
+        can assert that a per-consumer issuer rejects the retired shared-secret
+        shape. Empty when no secret is configured.
+        """
+        if not self.private_api_secret:
+            return {}
+        return {INTERNAL_TOKEN_HEADER: self.private_api_secret}
 
 
 _CONFIG = LiveTestConfig.from_env()

@@ -40,11 +40,13 @@ def auth_health_url() -> str:
 
 
 def internal_headers() -> dict[str, str]:
-    """Return private API headers when a private secret is configured."""
-    secret = get_config().private_api_secret
-    if not secret:
-        return {}
-    return {"X-Internal-Token": secret}
+    """Return private API headers for the configured per-consumer model."""
+    return get_config().internal_headers()
+
+
+def health_detail_headers() -> dict[str, str]:
+    """Return headers that unlock the deep ``/health`` infrastructure detail."""
+    return get_config().health_detail_headers()
 
 
 def auth_header(bearer: str) -> dict[str, str]:

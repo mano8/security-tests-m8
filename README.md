@@ -177,6 +177,7 @@ configure(
     public_base_url="https://localhost:4430",
     public_tls_verify=False,
     private_api_secret="changethis",
+    private_api_client_id="media-service",
     refresh_secret_key="changethis",
 )
 ```
@@ -218,7 +219,9 @@ live-test target URLs, or set it to a certificate bundle path such as
 | `LIVE_TEST_DEPLOYMENT_ROOT` | Compose deployment directory used by `DeploymentPreflightSuite` | unset |
 | `LIVE_TEST_PUBLIC_BASE` | Public HTTPS entrypoint for public/private route checks | `https://localhost:4430` |
 | `LIVE_TEST_PUBLIC_TLS_VERIFY` | TLS verification setting for configured live-test HTTPS target URLs; use `false` or a CA bundle path for local self-signed stacks | `true` |
-| `LIVE_TEST_PRIVATE_API_SECRET` | Secret header value for private API tests | unset |
+| `LIVE_TEST_PRIVATE_API_SECRET` | Secret header value (`X-Internal-Token`) for private API tests | unset |
+| `LIVE_TEST_PRIVATE_API_CLIENT_ID` | Per-consumer id (`X-Internal-Client`) for fa-auth-m8 >= 1.0.0 issuers; leave unset for legacy single-secret stacks | unset |
+| `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` | Dedicated credential (`X-Internal-Token`) that unlocks the deep `/health` infrastructure detail (token mode, Redis/DB); falls back to `LIVE_TEST_PRIVATE_API_SECRET` for legacy stacks | unset |
 | `LIVE_TEST_REFRESH_SECRET_KEY` | Refresh-token secret used by refresh/cookie tests | unset |
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | Abort before collection if auth, services, or credentials are not usable | `false` |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | Refuse `FIRST_SUPERUSER` from `auth.env` as the test account | `true` |
@@ -554,6 +557,8 @@ def test_custom_protected_route(service_url, admin_headers):
 - `deployment_root` or `LIVE_TEST_DEPLOYMENT_ROOT` enables the Python deployment preflight suite for compose env/image checks.
 - `public_tls_verify=False` is useful for local HTTPS stacks with self-signed certificates.
 - `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in checks. Leave them unset to skip those checks, or set them to the real values from the target stack.
+- `LIVE_TEST_PRIVATE_API_CLIENT_ID` is the per-consumer id sent as `X-Internal-Client` alongside `X-Internal-Token` so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0, no shared-secret fallback). Set it together with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check (the retired `X-Internal-Token`-only shape must be rejected with 401). Leave it unset for legacy single-secret stacks.
+- `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` unlocks the deep `/health` infrastructure detail body (token mode, Redis/DB reachability, degradation modes) used by stack detection and the token-mode / disclosure suites. fa-auth-m8 >= 1.0.0 gates that detail on a dedicated credential decoupled from `PRIVATE_API_SECRET` (plan 9.3), sent via `X-Internal-Token`. Set it to the stack's `HEALTH_DETAIL_CREDENTIAL` so those health-dependent tests can read what they need; the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` only for legacy stacks that still reuse it for the health gate.
 
 ## Development
 
