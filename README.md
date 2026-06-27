@@ -524,7 +524,7 @@ These fixtures are available in consumer tests after the package is installed:
 - `admin_token`
 - `admin_headers`
 - `admin_login`
-- `regular_user`
+- `regular_user` — session-scoped; creates a throwaway `redteam_<hex>@redteam-test.com` non-superuser and deletes it (best-effort, via the admin account) at session teardown
 - `live_jwks_keys`
 - `committed_key_forge`
 - `public_key_pem`
@@ -550,6 +550,7 @@ def test_custom_protected_route(service_url, admin_headers):
 ## Notes for Live Stacks
 
 - The tests use the configured dedicated test-only superuser to create tokens and, for some suites, create a temporary regular user.
+- **Throwaway `redteam_*` user.** The `regular_user` fixture creates one non-superuser account per session with a random email of the form `redteam_<hex>@redteam-test.com` (password `RedTeam!Pass99`), used to prove that a normal user cannot escalate privileges or reach admin-only routes. The fixture **deletes that user at session teardown** through the admin account, so a normal run leaves no standing test identity behind. Deletion is best-effort: if the stack is unreachable when teardown runs, the account may survive and can be pruned manually (filter on the `redteam_*@redteam-test.com` pattern). The dedicated **superuser** you configure is never created or deleted by the suite — it must already exist and is yours to manage.
 - Do not use the stack bootstrap superuser (`FIRST_SUPERUSER`) as the live-test account. With fail-fast preflight enabled, the package refuses that configuration by default.
 - Some tests are marked `destructive` because they exercise revocation, rate limiting, API key mutation, or other live state changes. CLI `run` excludes these by default; pass `--include-destructive` to run them.
 - Algorithm and token-mode specific tests are skipped automatically when they do not match the detected stack.

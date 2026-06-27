@@ -21,6 +21,8 @@ It is built for the default hardened stack routes:
 
 The live tests require a dedicated test-only superuser. Do not use `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` from `auth.env`; the package preflight refuses that by default.
 
+During a run the suite also creates one throwaway non-superuser, `redteam_<hex>@redteam-test.com`, to attempt privilege escalation against admin-only routes. That account is **deleted automatically at the end of the test session** (best-effort, through the admin account), so a run leaves no standing test identity behind. The dedicated superuser you configure is never created or deleted by the suite — it stays under your control.
+
 CLI mode is recommended for normal users and excludes destructive tests by default. This local pytest example is for custom tests, extra marker selection, and local suite extension. The unknown-route information-disclosure test now lives in the package full suite and no longer needs to be copied into this folder.
 
 ## What It Runs
