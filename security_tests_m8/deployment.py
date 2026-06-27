@@ -45,6 +45,7 @@ _DEFAULT_GRAFANA_PASSWORDS = {"admin", "changethis", "password"}
 _DEFAULT_ROOT_DB_PASSWORDS = {"postgres", "password", "changethis"}
 _EXAMPLE_ENV_SUFFIXES = (".env.example",)
 _EXAMPLE_ENV_NAMES = {".env.example", "env.example"}
+_DOCKER_SOCKET_PATH = "/var/run/docker.sock"
 
 
 @dataclass(frozen=True)
@@ -525,6 +526,93 @@ def _scan_default_credentials(
             )
 
 
+def _volume_source(vol: Any) -> str:
+    """Extract the host-side source path from a compose volume entry."""
+    if isinstance(vol, str):
+        return vol.split(":")[0] if ":" in vol else vol
+    if isinstance(vol, Mapping):
+        return str(vol.get("source") or "")
+    return ""
+
+
+def _port_binds_publicly(port: Any) -> bool:
+    """Return True if a compose port mapping defaults to a 0.0.0.0 host bind."""
+    if isinstance(port, Mapping):
+        host_ip = str(port.get("host_ip") or "")
+        if host_ip.startswith("$"):
+            return False
+        published = port.get("published")
+        return (
+            published is not None
+            and str(published).strip() != ""
+            and host_ip in ("", _PUBLIC_BIND_IP)
+        )
+    port_str = str(port).strip().split("/")[0]  # strip /tcp, /udp protocol suffix
+    parts = port_str.split(":")
+    if len(parts) == 3:
+        host_ip = parts[0]
+        return not host_ip.startswith("$") and host_ip in ("", _PUBLIC_BIND_IP)
+    if len(parts) == 2:
+        return not parts[0].startswith("$")
+    return False
+
+
+def _scan_docker_socket_mounts(
+    findings: list[DeploymentFinding],
+    root: Path,
+    compose_files: Iterable[Path],
+    latest: Mapping[str, EnvValue],
+) -> None:
+    """Flag /var/run/docker.sock mounts in hardened/production stacks."""
+    if not _is_hardened_or_production(root, latest):
+        return
+    for compose_path in compose_files:
+        compose = _load_compose(compose_path)
+        for svc_name, svc in _iter_services(compose):
+            for vol in svc.get("volumes", []) or []:
+                if _DOCKER_SOCKET_PATH in _volume_source(vol):
+                    findings.append(
+                        DeploymentFinding(
+                            code="docker-socket-mount",
+                            message=(
+                                "production/hardened service mounts /var/run/docker.sock"
+                                " — use a static file provider or socket proxy instead"
+                            ),
+                            severity="error",
+                            path=compose_path,
+                            key=svc_name,
+                        )
+                    )
+
+
+def _scan_public_service_ports(
+    findings: list[DeploymentFinding],
+    root: Path,
+    compose_files: Iterable[Path],
+    latest: Mapping[str, EnvValue],
+) -> None:
+    """Flag 0.0.0.0 host-port binds for any service in hardened/production stacks."""
+    if not _is_hardened_or_production(root, latest):
+        return
+    for compose_path in compose_files:
+        compose = _load_compose(compose_path)
+        for svc_name, svc in _iter_services(compose):
+            for port in svc.get("ports", []) or []:
+                if _port_binds_publicly(port):
+                    findings.append(
+                        DeploymentFinding(
+                            code="public-service-port",
+                            message=(
+                                "service publishes a port without an explicit loopback"
+                                " bind in a hardened/production stack"
+                            ),
+                            severity="error",
+                            path=compose_path,
+                            key=svc_name,
+                        )
+                    )
+
+
 def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     """Scan a compose deployment directory for P0 preflight security failures."""
     deployment_root = Path(root).resolve()
@@ -532,6 +620,7 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
         raise FileNotFoundError(deployment_root)
 
     values, scanned_files = _collect_values(deployment_root)
+    compose_files = _compose_files(deployment_root)
     latest = _last_by_key(values)
     findings: list[DeploymentFinding] = []
 
@@ -540,6 +629,8 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     _scan_production_policy(findings, latest)
     _scan_images(findings, deployment_root, values, latest)
     _scan_default_credentials(findings, values)
+    _scan_docker_socket_mounts(findings, deployment_root, compose_files, latest)
+    _scan_public_service_ports(findings, deployment_root, compose_files, latest)
 
     return DeploymentPreflightReport(
         root=deployment_root, findings=tuple(findings), scanned_files=scanned_files

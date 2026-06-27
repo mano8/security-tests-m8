@@ -262,3 +262,132 @@ def test_run_can_include_destructive_tests(tmp_path: Path, monkeypatch) -> None:
     assert code == 0
     assert calls
     assert calls[0][1:] == []
+
+
+# ---------------------------------------------------------------------------
+# scan-release command
+# ---------------------------------------------------------------------------
+
+
+def test_scan_release_clean_worktree_passes(
+    capsys, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
+
+    code = main(
+        [
+            "scan-release",
+            "--env-file",
+            str(tmp_path / "missing.env"),
+            "--deployment-root",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Release hygiene scan:" in captured.out
+    assert "Findings: none" in captured.out
+    assert "PASS release-hygiene - worktree is release-clean" in captured.out
+    assert "Reason: no blocked release artifacts found." in captured.out
+    assert "Required action: none." in captured.out
+
+
+def test_scan_release_blocked_artifact_fails(
+    capsys, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
+    (tmp_path / "auth.env").write_text("SECRET=value\n", encoding="utf-8")
+
+    code = main(
+        [
+            "scan-release",
+            "--env-file",
+            str(tmp_path / "missing.env"),
+            "--deployment-root",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "Findings (1):" in captured.out
+    assert "ERROR runtime-env-file" in captured.out
+    assert "FAIL release-hygiene - blocked artifacts found" in captured.out
+    assert "Reason: 1 error, 0 warnings found." in captured.out
+    assert "Required action: remove every ERROR artifact" in captured.out
+
+
+def test_scan_release_warnings_without_strict_passes(
+    capsys, tmp_path: Path, monkeypatch
+) -> None:
+    from unittest.mock import patch
+
+    from security_tests_m8.release_hygiene import HygieneFinding, ReleaseHygieneReport
+
+    monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
+    mock_report = ReleaseHygieneReport(
+        root=tmp_path,
+        findings=(
+            HygieneFinding(
+                code="permission-denied",
+                message="not readable",
+                severity="warning",
+                path=tmp_path / "locked",
+            ),
+        ),
+    )
+    with patch("security_tests_m8.cli.scan_release_surface", return_value=mock_report):
+        code = main(
+            [
+                "scan-release",
+                "--env-file",
+                str(tmp_path / "missing.env"),
+                "--deployment-root",
+                str(tmp_path),
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "PASS release-hygiene - passed with warnings" in captured.out
+    assert "Reason: no ERROR findings; 1 warning noted." in captured.out
+    assert "Required action: review every WARNING finding listed above." in captured.out
+
+
+def test_scan_release_warnings_with_strict_fails(
+    capsys, tmp_path: Path, monkeypatch
+) -> None:
+    from unittest.mock import patch
+
+    from security_tests_m8.release_hygiene import HygieneFinding, ReleaseHygieneReport
+
+    monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
+    mock_report = ReleaseHygieneReport(
+        root=tmp_path,
+        findings=(
+            HygieneFinding(
+                code="permission-denied",
+                message="not readable",
+                severity="warning",
+                path=tmp_path / "locked",
+            ),
+        ),
+    )
+    with patch("security_tests_m8.cli.scan_release_surface", return_value=mock_report):
+        code = main(
+            [
+                "scan-release",
+                "--env-file",
+                str(tmp_path / "missing.env"),
+                "--deployment-root",
+                str(tmp_path),
+                "--strict-warnings",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "FAIL release-hygiene - blocked artifacts found" in captured.out
+    assert "because --strict-warnings is enabled" in captured.out
+    assert "Required action: resolve every WARNING finding" in captured.out

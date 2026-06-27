@@ -338,3 +338,324 @@ def test_public_bind_break_glass_allows_production_bind(tmp_path: Path) -> None:
     )
 
     assert "public-api-bind" not in _codes(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Docker socket mount checks (_scan_docker_socket_mounts / _volume_source)
+# ---------------------------------------------------------------------------
+
+
+def _write_hardened_env(root: Path) -> None:
+    """Write a minimal production env so the stack is treated as hardened."""
+    _write(root / "auth.env", "ENVIRONMENT=production\n")
+
+
+def test_docker_socket_string_volume_fails_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            volumes:
+              - /var/run/docker.sock:/var/run/docker.sock:ro
+        """,
+    )
+
+    assert "docker-socket-mount" in _codes(tmp_path)
+
+
+def test_docker_socket_long_form_volume_fails_for_hardened_stack(
+    tmp_path: Path,
+) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            volumes:
+              - type: bind
+                source: /var/run/docker.sock
+                target: /var/run/docker.sock
+                read_only: true
+        """,
+    )
+
+    assert "docker-socket-mount" in _codes(tmp_path)
+
+
+def test_non_socket_volumes_pass_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            volumes:
+              - ./data:/data
+              - type: bind
+                source: ./config
+                target: /etc/app/config
+        """,
+    )
+
+    assert "docker-socket-mount" not in _codes(tmp_path)
+
+
+def test_bare_volume_entry_does_not_cause_false_positive(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        # YAML integer volume entries (malformed but parseable) must not raise.
+        "services:\n  app:\n    image: example/app:1.0.0\n    volumes:\n      - 9000\n",
+    )
+
+    assert "docker-socket-mount" not in _codes(tmp_path)
+
+
+def test_docker_socket_skipped_for_dev_stack(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            volumes:
+              - /var/run/docker.sock:/var/run/docker.sock:ro
+        """,
+    )
+    # No env file → not flagged as hardened/production.
+
+    assert "docker-socket-mount" not in _codes(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Public service port checks (_scan_public_service_ports / _port_binds_publicly)
+# ---------------------------------------------------------------------------
+
+
+def test_host_container_port_fails_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            ports:
+              - "8000:80"
+        """,
+    )
+
+    assert "public-service-port" in _codes(tmp_path)
+
+
+def test_explicit_0000_port_fails_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          minio:
+            image: quay.io/minio/minio:1.0.0
+            ports:
+              - "0.0.0.0:9005:9000"
+        """,
+    )
+
+    assert "public-service-port" in _codes(tmp_path)
+
+
+def test_port_with_protocol_suffix_fails_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            ports:
+              - "4430:443/tcp"
+        """,
+    )
+
+    assert "public-service-port" in _codes(tmp_path)
+
+
+def test_loopback_port_passes_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          grafana:
+            image: grafana/grafana:1.0.0
+            ports:
+              - "127.0.0.1:3000:3000"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_variable_ip_port_passes_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            ports:
+              - "${API_BIND_IP:-127.0.0.1}:9000:9000"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_variable_host_port_passes_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - "${PORT}:80"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_bare_port_passes_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - "80"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_long_form_port_empty_host_ip_fails_for_hardened_stack(
+    tmp_path: Path,
+) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - target: 80
+                published: 8080
+        """,
+    )
+
+    assert "public-service-port" in _codes(tmp_path)
+
+
+def test_long_form_port_explicit_0000_fails_for_hardened_stack(
+    tmp_path: Path,
+) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - target: 80
+                published: 8080
+                host_ip: "0.0.0.0"
+        """,
+    )
+
+    assert "public-service-port" in _codes(tmp_path)
+
+
+def test_long_form_port_loopback_passes_for_hardened_stack(tmp_path: Path) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - target: 8080
+                published: 8080
+                host_ip: "127.0.0.1"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_long_form_port_variable_ip_passes_for_hardened_stack(
+    tmp_path: Path,
+) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - target: 9000
+                published: 9000
+                host_ip: "${API_BIND_IP:-127.0.0.1}"
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_long_form_port_no_published_passes_for_hardened_stack(
+    tmp_path: Path,
+) -> None:
+    _write_hardened_env(tmp_path)
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          app:
+            image: example/app:1.0.0
+            ports:
+              - target: 80
+        """,
+    )
+
+    assert "public-service-port" not in _codes(tmp_path)
+
+
+def test_public_service_port_skipped_for_dev_stack(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "docker-compose.yml",
+        """
+        services:
+          traefik:
+            image: traefik:v3.7.5
+            ports:
+              - "8000:80"
+        """,
+    )
+    # No env file → not flagged as hardened/production.
+
+    assert "public-service-port" not in _codes(tmp_path)

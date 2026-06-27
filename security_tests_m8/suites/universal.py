@@ -35,7 +35,7 @@ from security_tests_m8._client import (
     SVC_BASE,
     TIMEOUT,
     auth_health_url,
-    internal_headers,
+    health_detail_headers,
 )
 from security_tests_m8._config import get_config
 from security_tests_m8.forge import forge_alg_none
@@ -655,6 +655,39 @@ class PrivateAPISuite:
             f"[SECURITY FAIL-F05] Private routes exposed in OpenAPI: {private_paths}"
         )
 
+    def test_f06_legacy_token_only_rejected_under_per_consumer_model(self):
+        """SECURITY PASS: a per-consumer issuer must reject the legacy shape.
+
+        Opt-in / legacy-detection check. When ``LIVE_TEST_PRIVATE_API_CLIENT_ID``
+        is configured the issuer is fa-auth-m8 >= 1.0.0 (per-consumer creds, no
+        shared-secret fallback). Presenting only ``X-Internal-Token`` — the
+        retired single-secret shape, no ``X-Internal-Client`` — to a private
+        route on the internal entrypoint must be rejected (401), never accepted.
+        """
+        config = get_config()
+        if not (config.private_api_secret and config.private_api_client_id):
+            pytest.skip(
+                "Set LIVE_TEST_PRIVATE_API_SECRET and LIVE_TEST_PRIVATE_API_CLIENT_ID "
+                "to run the per-consumer legacy-detection check"
+            )
+        body = {
+            **self._BODY,
+            "email": f"pvt_legacy_{uuid.uuid4().hex[:6]}@redteam-test.com",
+        }
+        r = requests.post(
+            f"{AUTH_BASE}/private/users/",
+            json=body,
+            headers=config.legacy_internal_headers(),
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 401, (
+            "[SECURITY FAIL-F06] Legacy X-Internal-Token-only request was not "
+            f"rejected by the per-consumer issuer. Got {r.status_code}, expected "
+            "401. The retired shared-secret fallback must be gone — only "
+            "X-Internal-Client + X-Internal-Token (or a short-TTL service token) "
+            "may authenticate /private/* under fa-auth-m8 >= 1.0.0."
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # F2  METRICS ENDPOINT EXPOSURE
@@ -850,7 +883,9 @@ class InfoDisclosureSuite:
 
     def test_h05_health_endpoint_detail_level(self):
         """OBSERVATION: health responses may disclose infrastructure details."""
-        r = requests.get(auth_health_url(), headers=internal_headers(), timeout=TIMEOUT)
+        r = requests.get(
+            auth_health_url(), headers=health_detail_headers(), timeout=TIMEOUT
+        )
         if r.status_code == 404:
             return
         assert r.status_code == 200
@@ -893,7 +928,7 @@ class SecurityHeadersSuite:
     def resp_headers(self):
         """Fetch a real response and return its headers (case-insensitive)."""
         response = requests.get(
-            auth_health_url(), headers=internal_headers(), timeout=TIMEOUT
+            auth_health_url(), headers=health_detail_headers(), timeout=TIMEOUT
         )
         if response.status_code == 404:
             response = requests.get(f"{AUTH_BASE}/meta", timeout=TIMEOUT)

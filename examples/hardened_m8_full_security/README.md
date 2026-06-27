@@ -21,6 +21,8 @@ It is built for the default hardened stack routes:
 
 The live tests require a dedicated test-only superuser. Do not use `FIRST_SUPERUSER` / `FIRST_SUPERUSER_PASSWORD` from `auth.env`; the package preflight refuses that by default.
 
+During a run the suite also creates one throwaway non-superuser, `redteam_<hex>@redteam-test.com`, to attempt privilege escalation against admin-only routes. That account is **deleted automatically at the end of the test session** (best-effort, through the admin account), so a run leaves no standing test identity behind. The dedicated superuser you configure is never created or deleted by the suite — it stays under your control.
+
 CLI mode is recommended for normal users and excludes destructive tests by default. This local pytest example is for custom tests, extra marker selection, and local suite extension. The unknown-route information-disclosure test now lives in the package full suite and no longer needs to be copied into this folder.
 
 ## What It Runs
@@ -126,6 +128,8 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 | `LIVE_TEST_PUBLIC_BASE` | `https://localhost:4430` |
 | `LIVE_TEST_PUBLIC_TLS_VERIFY` | `false` |
 | `LIVE_TEST_PRIVATE_API_SECRET` | real `PRIVATE_API_SECRET`, or unset |
+| `LIVE_TEST_PRIVATE_API_CLIENT_ID` | per-consumer id (e.g. `media-service`) for fa-auth-m8 >= 1.0.0, or unset |
+| `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` | real `HEALTH_DETAIL_CREDENTIAL` (unlocks deep `/health` detail), or unset |
 | `LIVE_TEST_REFRESH_SECRET_KEY` | real `REFRESH_SECRET_KEY`, or unset |
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` |
@@ -135,6 +139,8 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 
 `LIVE_TEST_REPO_ROOT` lets asymmetric-key tests inspect the hardened stack's generated `keys/private.pem` and `keys/public.pem` files.
 `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in secret-exposure checks. If they are unset, those specific tests skip.
+`LIVE_TEST_PRIVATE_API_CLIENT_ID` adds the `X-Internal-Client` header so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0); set it with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check. Leave it unset for legacy single-secret stacks.
+`LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` is the dedicated credential that unlocks the deep `/health` detail body (token mode, Redis/DB) which stack detection and the token-mode/disclosure suites read. fa-auth-m8 >= 1.0.0 gates that detail on `HEALTH_DETAIL_CREDENTIAL` decoupled from `PRIVATE_API_SECRET`; set it so those tests get the info they need (otherwise the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` for legacy stacks only).
 
 ## Adapting To Another Stack
 

@@ -10,6 +10,10 @@ from security_tests_m8 import (
     get_config,
     load_env_file,
 )
+from security_tests_m8._config import (
+    INTERNAL_CLIENT_HEADER,
+    INTERNAL_TOKEN_HEADER,
+)
 
 _PLACEHOLDER = "pw"
 _OPT_IN_PRIVATE_VALUE = "private"
@@ -88,6 +92,8 @@ def test_from_env_parses_all_overrides(
     monkeypatch.setenv("LIVE_TEST_PUBLIC_BASE", "https://public/")
     monkeypatch.setenv("LIVE_TEST_PUBLIC_TLS_VERIFY", "false")
     monkeypatch.setenv("LIVE_TEST_PRIVATE_API_SECRET", _OPT_IN_PRIVATE_VALUE)
+    monkeypatch.setenv("LIVE_TEST_PRIVATE_API_CLIENT_ID", "media-service")
+    monkeypatch.setenv("LIVE_TEST_HEALTH_DETAIL_CREDENTIAL", "health-detail")
     monkeypatch.setenv("LIVE_TEST_REFRESH_SECRET_KEY", _OPT_IN_REFRESH_VALUE)
 
     config = LiveTestConfig.from_env()
@@ -102,8 +108,70 @@ def test_from_env_parses_all_overrides(
     assert config.public_base_url == "https://public"
     assert config.public_tls_verify is False
     assert config.private_api_secret == _OPT_IN_PRIVATE_VALUE
+    assert config.private_api_client_id == "media-service"
+    assert config.health_detail_credential == "health-detail"
     assert config.refresh_secret_key == _OPT_IN_REFRESH_VALUE
     assert config.resolve_service_base_url() == "http://catalog"
+
+
+def test_internal_headers_empty_without_secret() -> None:
+    config = LiveTestConfig()
+
+    assert config.internal_headers() == {}
+    assert config.legacy_internal_headers() == {}
+
+
+def test_internal_headers_token_only_without_client_id() -> None:
+    config = LiveTestConfig(private_api_secret=_OPT_IN_PRIVATE_VALUE)
+
+    assert config.internal_headers() == {INTERNAL_TOKEN_HEADER: _OPT_IN_PRIVATE_VALUE}
+
+
+def test_internal_headers_include_client_for_per_consumer_model() -> None:
+    config = LiveTestConfig(
+        private_api_secret=_OPT_IN_PRIVATE_VALUE,
+        private_api_client_id="media-service",
+    )
+
+    assert config.internal_headers() == {
+        INTERNAL_TOKEN_HEADER: _OPT_IN_PRIVATE_VALUE,
+        INTERNAL_CLIENT_HEADER: "media-service",
+    }
+
+
+def test_legacy_internal_headers_omit_client_even_when_configured() -> None:
+    config = LiveTestConfig(
+        private_api_secret=_OPT_IN_PRIVATE_VALUE,
+        private_api_client_id="media-service",
+    )
+
+    assert config.legacy_internal_headers() == {
+        INTERNAL_TOKEN_HEADER: _OPT_IN_PRIVATE_VALUE
+    }
+
+
+def test_health_detail_headers_empty_without_any_credential() -> None:
+    config = LiveTestConfig()
+
+    assert config.health_detail_headers() == {}
+
+
+def test_health_detail_headers_fall_back_to_private_api_secret() -> None:
+    config = LiveTestConfig(private_api_secret=_OPT_IN_PRIVATE_VALUE)
+
+    assert config.health_detail_headers() == {
+        INTERNAL_TOKEN_HEADER: _OPT_IN_PRIVATE_VALUE
+    }
+
+
+def test_health_detail_headers_prefer_dedicated_credential() -> None:
+    config = LiveTestConfig(
+        private_api_secret=_OPT_IN_PRIVATE_VALUE,
+        health_detail_credential="health-detail",
+    )
+
+    assert config.health_detail_headers() == {INTERNAL_TOKEN_HEADER: "health-detail"}
+    assert INTERNAL_CLIENT_HEADER not in config.health_detail_headers()
 
 
 def test_from_env_parses_boolean_override(

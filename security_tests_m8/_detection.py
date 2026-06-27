@@ -51,19 +51,12 @@ class StackInfo:
         return getattr(self, key, default)
 
 
-def _internal_headers() -> dict[str, str]:
-    secret = get_config().private_api_secret
-    if not secret:
-        return {}
-    return {"X-Internal-Token": secret}
-
-
 def _get_health_response() -> requests.Response | None:
     config = get_config()
     url = config.auth_health_url or f"{config.auth_base_url}/health"
     try:
         response = requests.get(
-            url, headers=_internal_headers(), timeout=_DETECT_TIMEOUT
+            url, headers=config.health_detail_headers(), timeout=_DETECT_TIMEOUT
         )
     except requests.RequestException:
         return None

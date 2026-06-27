@@ -6,7 +6,7 @@ import base64
 import json
 import uuid
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Protocol, TypeAlias, cast
 
@@ -275,8 +275,17 @@ def admin_login() -> dict[str, object]:
 
 
 @pytest.fixture(scope="session")
-def regular_user(admin_headers: dict[str, str]) -> dict[str, object]:
-    """Create a non-superuser account and return credentials."""
+def regular_user(
+    admin_headers: dict[str, str],
+) -> Iterator[dict[str, object]]:
+    """Create a throwaway non-superuser account, yield credentials, then delete it.
+
+    The account uses a random ``redteam_<hex>@redteam-test.com`` email so each run
+    is isolated and never collides with real users. It is removed at session
+    teardown via the admin account so a run leaves no standing test identity
+    behind. Deletion is best-effort: if the stack is unreachable at teardown the
+    cleanup is skipped rather than failing the run.
+    """
     config = get_config()
     email = f"redteam_{uuid.uuid4().hex[:8]}@redteam-test.com"
     generated_value = "RedTeam!Pass99"
@@ -291,6 +300,7 @@ def regular_user(admin_headers: dict[str, str]) -> dict[str, object]:
         timeout=config.timeout,
     )
     assert response.status_code == 200, f"Could not create test user: {response.text}"
+    user_id = response.json()["id"]
     login = requests.post(
         f"{config.auth_base_url}/login/access-token",
         data={"username": email, "password": generated_value},
@@ -298,14 +308,24 @@ def regular_user(admin_headers: dict[str, str]) -> dict[str, object]:
     )
     assert login.status_code == 200
     token = str(login.json()["access_token"])
-    return {
-        "id": response.json()["id"],
-        "email": email,
-        "password": generated_value,
-        "token": token,
-        "cookies": dict(login.cookies),
-        "headers": {"Authorization": f"Bearer {token}"},
-    }
+    try:
+        yield {
+            "id": user_id,
+            "email": email,
+            "password": generated_value,
+            "token": token,
+            "cookies": dict(login.cookies),
+            "headers": {"Authorization": f"Bearer {token}"},
+        }
+    finally:
+        try:
+            requests.delete(
+                f"{config.auth_base_url}/users/delete/{user_id}/",
+                headers=admin_headers,
+                timeout=config.timeout,
+            )
+        except requests.RequestException:
+            pass
 
 
 @pytest.fixture(scope="session")

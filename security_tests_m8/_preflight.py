@@ -39,16 +39,10 @@ def _ensure_not_bootstrap_superuser(config: LiveTestConfig) -> None:
         )
 
 
-def _internal_headers(config: LiveTestConfig) -> dict[str, str]:
-    if not config.private_api_secret:
-        return {}
-    return {"X-Internal-Token": config.private_api_secret}
-
-
 def _check_auth_available(config: LiveTestConfig) -> None:
     health_url = config.auth_health_url or f"{config.auth_base_url}/health"
     probes: tuple[tuple[str, dict[str, str]], ...] = (
-        (health_url, _internal_headers(config)),
+        (health_url, config.health_detail_headers()),
         (f"{config.auth_base_url}/meta", {}),
     )
     failures: list[str] = []
