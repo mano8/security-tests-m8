@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 0.2.0 — 2026-06-27
 
 ### Security
 
@@ -38,23 +38,6 @@
     [--deployment-root ROOT] [--strict-warnings]`) exits non-zero on errors
     (or on warnings when `--strict-warnings` is set), suitable for CI/release
     gates.
-
-### Changed
-
-- **`regular_user` fixture now self-cleans.** The throwaway
-  `redteam_<hex>@redteam-test.com` non-superuser created for privilege-escalation
-  checks is deleted at session teardown through the admin account, so a run no
-  longer leaves a standing test identity on the stack. Deletion is best-effort:
-  if the stack is unreachable at teardown the cleanup is skipped rather than
-  failing the run. README, the `hardened_m8_full_security` example, and the
-  `shared_live_tests` READMEs (fa-auth-m8, media-service-m8, fa-ui-m8) document
-  the create-and-delete lifecycle.
-
----
-
-## 0.2.0
-
-### Security
 
 - **9.1 per-consumer private-API auth (harness alignment)** — the live-probe
   config/client now supports the per-consumer credential model required by
@@ -107,6 +90,17 @@
     string with `/tcp`/`/udp` suffix, explicit `0.0.0.0`, loopback, shell
     variable IP, long-form Mapping, bare ports, integer volume entries).
   - 72 tests, 100% coverage, ruff + mypy + bandit green.
+
+### Changed
+
+- **`regular_user` fixture now self-cleans.** The throwaway
+  `redteam_<hex>@redteam-test.com` non-superuser created for privilege-escalation
+  checks is deleted at session teardown through the admin account, so a run no
+  longer leaves a standing test identity on the stack. Deletion is best-effort:
+  if the stack is unreachable at teardown the cleanup is skipped rather than
+  failing the run. README, the `hardened_m8_full_security` example, and the
+  `shared_live_tests` READMEs (fa-auth-m8, media-service-m8, fa-ui-m8) document
+  the create-and-delete lifecycle.
 
 ---
 
