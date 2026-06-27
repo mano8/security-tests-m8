@@ -4,6 +4,19 @@
 
 ### Security
 
+- **P2.3 trusted dependency audit in CI** — `pip-audit` added to the CI
+  `security` job. Audits installed runtime dependencies against the PyPA
+  advisory database on every PR and push to `main`. Audit runs inside
+  GitHub Actions (a trusted environment); the local rule stands: do not
+  run advisory-service queries from developer machines where private
+  dependency metadata may be sent to an external service.
+  Data-sharing expectation: `pip-audit` queries the PyPA advisory
+  database (public vulnerability data); no private package metadata
+  beyond package names and versions is transmitted. A `secret-scan` job
+  using gitleaks was also added to detect accidental credential commits.
+  The duplicate `ci.yml` workflow (which also ran `pip-audit` in a
+  combined job) was removed; `CI.yaml` is now the canonical CI workflow.
+
 - **P0.4 release artifact hygiene scanner** (`release_hygiene.py`) — new
   `scan_release_surface(root)` function that walks a repo worktree and flags
   runtime artifacts that must not appear on a release surface, Docker build
