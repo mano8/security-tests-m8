@@ -12,6 +12,7 @@ import pytest
 
 from security_tests_m8._config import configure_from_env, get_config
 from security_tests_m8.deployment import DeploymentPreflightReport, scan_deployment
+from security_tests_m8.release_hygiene import ReleaseHygieneReport, scan_release_surface
 
 
 def _strip_separator(args: list[str]) -> list[str]:
@@ -143,6 +144,59 @@ def _list_suites(_: argparse.Namespace) -> int:
     return 0
 
 
+def _print_release_findings(report: ReleaseHygieneReport) -> None:
+    if report.findings:
+        print(f"Findings ({len(report.findings)}):")
+        for finding in report.findings:
+            print(f"  - {finding.format(report.root)}")
+    else:
+        print("Findings: none")
+
+
+def _print_release_verdict(report: ReleaseHygieneReport, strict_warnings: bool) -> int:
+    error_count = len(report.errors)
+    warning_count = len(report.warnings)
+    fail_for_warnings = strict_warnings and warning_count > 0
+    if error_count or fail_for_warnings:
+        strict_note = (
+            " because --strict-warnings is enabled" if fail_for_warnings else ""
+        )
+        print("FAIL release-hygiene - blocked artifacts found")
+        print(
+            "Reason: "
+            f"{_plural(error_count, 'error')}, "
+            f"{_plural(warning_count, 'warning')} found{strict_note}."
+        )
+        if error_count:
+            print(
+                "Required action: remove every ERROR artifact before releasing or packaging."
+            )
+        else:
+            print(
+                "Required action: resolve every WARNING finding, "
+                "or rerun without --strict-warnings."
+            )
+        return 1
+
+    if warning_count:
+        print("PASS release-hygiene - passed with warnings")
+        print(f"Reason: no ERROR findings; {_plural(warning_count, 'warning')} noted.")
+        print("Required action: review every WARNING finding listed above.")
+    else:
+        print("PASS release-hygiene - worktree is release-clean")
+        print("Reason: no blocked release artifacts found.")
+        print("Required action: none.")
+    return 0
+
+
+def _scan_release(args: argparse.Namespace) -> int:
+    root = _deployment_root(args)
+    report = scan_release_surface(root)
+    print(f"Release hygiene scan: {report.root}")
+    _print_release_findings(report)
+    return _print_release_verdict(report, args.strict_warnings)
+
+
 def _add_env_file_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--env-file",
@@ -212,6 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_preflight_arguments(scan_env)
     scan_env.set_defaults(func=_preflight)
+
+    scan_release = subparsers.add_parser(
+        "scan-release",
+        description=(
+            "Scan a repo worktree for runtime artifacts that must not appear"
+            " on a release surface (env files, private keys, runtime data dirs)."
+        ),
+    )
+    _add_preflight_arguments(scan_release)
+    scan_release.set_defaults(func=_scan_release)
 
     list_suites = subparsers.add_parser(
         "list-suites",

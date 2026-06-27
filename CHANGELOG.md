@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Security
+
+- **P0.4 release artifact hygiene scanner** (`release_hygiene.py`) — new
+  `scan_release_surface(root)` function that walks a repo worktree and flags
+  runtime artifacts that must not appear on a release surface, Docker build
+  context, or packaging archive:
+  - `runtime-env-file` (error): non-example env files (`.env`, `auth.env`,
+    `media.env`, `worker.env`, `api.env`, `test.env`, `grafana.env`).
+  - `private-key-material` (error): files ending in `.key` or `.pem` (private
+    keys and certificates, excluding `.example` copies).
+  - `redis-dump` (error): `dump.rdb` Redis persistence snapshots.
+  - `database-file` (error): `.db`, `.sqlite`, `.sqlite3` database files.
+  - `runtime-data-dir` (error): runtime data directories (`minio/`, `redis/`,
+    `media_redis/`, `db_data/`, `vault/`, `grafana/data/`, `prometheus/data/`).
+  - `permission-denied` (warning): directories that cannot be read; scanner
+    flags them rather than silently skipping, so they appear in the report
+    for manual follow-up.
+  - Tool caches (`.git`, `__pycache__`, `.mypy_cache`, `node_modules`, etc.)
+    are skipped. Example files (`*.example`) are always safe.
+  - New `scan-release` CLI subcommand (`security-tests-m8 scan-release
+    [--deployment-root ROOT] [--strict-warnings]`) exits non-zero on errors
+    (or on warnings when `--strict-warnings` is set), suitable for CI/release
+    gates.
+
+### Changed
+
+- **`regular_user` fixture now self-cleans.** The throwaway
+  `redteam_<hex>@redteam-test.com` non-superuser created for privilege-escalation
+  checks is deleted at session teardown through the admin account, so a run no
+  longer leaves a standing test identity on the stack. Deletion is best-effort:
+  if the stack is unreachable at teardown the cleanup is skipped rather than
+  failing the run. README, the `hardened_m8_full_security` example, and the
+  `shared_live_tests` READMEs (fa-auth-m8, media-service-m8, fa-ui-m8) document
+  the create-and-delete lifecycle.
+
 ---
 
 ## 0.2.0
