@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "security-tests-m8"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reusable live security test suites for FastAPI M8 services."
 readme = "README.md"
 license = { file = "LICENSE" }

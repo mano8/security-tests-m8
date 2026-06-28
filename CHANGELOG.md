@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 — 2026-06-28
+
+### Changed
+
+- **9.4 Design B harness alignment** — `HealthAPISuite` (F3) flipped from
+  "assert 404 (blocked by Traefik)" to "assert 200 with constant
+  `{"status":"ok"}` body; assert no detail keys in ungated response". Reflects
+  the Design B decision: `/health` is publicly routed through Traefik but the
+  ungated body is a constant liveness response (no Redis/DB/token-mode leak).
+  Detail remains credential-gated via `HEALTH_DETAIL_CREDENTIAL` (plan 9.3).
+  - `test_f3_01` renamed: `health_publicly_reachable_with_shallow_constant_body`.
+  - `test_f3_02` renamed: `unauthenticated_health_body_has_no_detail_keys`.
+  - `test_f3_03` added: `health_absent_from_openapi` (was the former `test_f3_02`).
+
+- **Detection honesty** — `StackInfo` gains two new fields: `detail_available`
+  (True when the health response contained readable infra detail, i.e.
+  `HEALTH_DETAIL_CREDENTIAL` was honoured) and `token_mode_known` (True when
+  token mode was read from health detail or from `LIVE_TEST_TOKEN_MODE` / env
+  config). `require_redis` / `live_stateful` / `live_hybrid` tests now skip with
+  an explicit reason when `detail_available=False`; `require_token_mode` tests
+  skip with an explicit reason when `token_mode_known=False`, instead of
+  silently running blind on defaults. Set `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL`
+  (or `LIVE_TEST_TOKEN_MODE`) to enable these suites.
+
 ## 0.2.0 — 2026-06-27
 
 ### Security
