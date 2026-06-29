@@ -663,6 +663,13 @@ class PrivateAPISuite:
         shared-secret fallback). Presenting only ``X-Internal-Token`` — the
         retired single-secret shape, no ``X-Internal-Client`` — to a private
         route on the internal entrypoint must be rejected (401), never accepted.
+
+        The probe targets ``private_api_base_url()``: hardened stacks block
+        ``/private`` at the public edge (Traefik → 404), so the legacy-shape
+        rejection can only be observed on the internal service-to-service
+        entrypoint. Set ``LIVE_TEST_INTERNAL_AUTH_BASE`` to that URL on such
+        stacks; otherwise this falls back to ``AUTH_BASE`` for simple stacks
+        whose public base reaches private routes directly.
         """
         config = get_config()
         if not (config.private_api_secret and config.private_api_client_id):
@@ -675,7 +682,7 @@ class PrivateAPISuite:
             "email": f"pvt_legacy_{uuid.uuid4().hex[:6]}@redteam-test.com",
         }
         r = requests.post(
-            f"{AUTH_BASE}/private/users/",
+            f"{config.private_api_base_url()}/private/users/",
             json=body,
             headers=config.legacy_internal_headers(),
             timeout=TIMEOUT,
@@ -685,7 +692,9 @@ class PrivateAPISuite:
             f"rejected by the per-consumer issuer. Got {r.status_code}, expected "
             "401. The retired shared-secret fallback must be gone — only "
             "X-Internal-Client + X-Internal-Token (or a short-TTL service token) "
-            "may authenticate /private/* under fa-auth-m8 >= 1.0.0."
+            "may authenticate /private/* under fa-auth-m8 >= 1.0.0. "
+            "(A 404 means the probe hit a public edge that blocks /private — set "
+            "LIVE_TEST_INTERNAL_AUTH_BASE to the internal service entrypoint.)"
         )
 
 

@@ -43,6 +43,36 @@ def test_auth_health_url_normalized() -> None:
     assert config.auth_health_url == "http://auth-internal/health"
 
 
+def test_internal_auth_base_url_normalized_when_set() -> None:
+    config = LiveTestConfig(
+        auth_base_url="https://edge/user/",
+        internal_auth_base_url="http://localhost:9000/user/",
+    ).normalized()
+
+    assert config.internal_auth_base_url == "http://localhost:9000/user"
+
+
+def test_internal_auth_base_url_stays_none_when_unset() -> None:
+    config = LiveTestConfig(auth_base_url="https://edge/user").normalized()
+
+    assert config.internal_auth_base_url is None
+
+
+def test_private_api_base_url_prefers_internal_entrypoint() -> None:
+    config = LiveTestConfig(
+        auth_base_url="https://edge/user",
+        internal_auth_base_url="http://localhost:9000/user",
+    )
+
+    assert config.private_api_base_url() == "http://localhost:9000/user"
+
+
+def test_private_api_base_url_falls_back_to_auth_base() -> None:
+    config = LiveTestConfig(auth_base_url="http://localhost:9000/user")
+
+    assert config.private_api_base_url() == "http://localhost:9000/user"
+
+
 def test_named_service_resolution_prefers_requested_service() -> None:
     config = LiveTestConfig(
         service_base_urls={"catalog": "http://catalog/", "orders": "http://orders"},
@@ -80,6 +110,7 @@ def test_from_env_parses_all_overrides(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("LIVE_TEST_AUTH_BASE", "http://auth/")
+    monkeypatch.setenv("LIVE_TEST_INTERNAL_AUTH_BASE", "http://localhost:9000/user/")
     monkeypatch.setenv("LIVE_TEST_AUTH_HEALTH_URL", "http://auth-internal/health/")
     monkeypatch.setenv("LIVE_TEST_ADMIN_EMAIL", "ops@example.com")
     monkeypatch.setenv("LIVE_TEST_ADMIN_PASSWORD", _PLACEHOLDER)
@@ -99,6 +130,7 @@ def test_from_env_parses_all_overrides(
     config = LiveTestConfig.from_env()
 
     assert config.auth_base_url == "http://auth"
+    assert config.internal_auth_base_url == "http://localhost:9000/user"
     assert config.auth_health_url == "http://auth-internal/health"
     assert config.admin_email == "ops@example.com"
     assert config.admin_password == _PLACEHOLDER

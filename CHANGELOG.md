@@ -2,6 +2,19 @@
 
 ## 0.3.0 — 2026-06-28
 
+### Fixed
+
+- **F06 legacy-shape check now targets the internal entrypoint.** The
+  `test_f06_legacy_token_only_rejected_under_per_consumer_model` probe built its
+  URL from `LIVE_TEST_AUTH_BASE`. On hardened stacks that base is the public
+  Traefik edge, which blocks `/private` (→ 404) before the request reaches the
+  issuer — so F06 saw 404 instead of the expected 401 and failed, contradicting
+  the F01–F04 checks that assert that same 404. The probe now targets a new
+  `LIVE_TEST_INTERNAL_AUTH_BASE` (via `LiveTestConfig.private_api_base_url()`),
+  the internal service-to-service entrypoint that exposes `/private/*`. It falls
+  back to `LIVE_TEST_AUTH_BASE` when unset, preserving behaviour for simple
+  stacks whose base reaches private routes directly.
+
 ### Changed
 
 - **9.4 Design B harness alignment** — `HealthAPISuite` (F3) flipped from
