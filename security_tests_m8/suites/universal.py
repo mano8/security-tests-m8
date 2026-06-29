@@ -791,7 +791,9 @@ class HealthAPISuite:
         if r.status_code != 200:
             return
         body = r.json()
-        detail_keys = {k for k in body if k in ("redis", "database", "token_mode", "degraded")}
+        detail_keys = {
+            k for k in body if k in ("redis", "database", "token_mode", "degraded")
+        }
         assert not detail_keys, (
             "[SECURITY FAIL-F3-02] Public /health leaks infrastructure detail to "
             f"anonymous callers: {detail_keys}. The ungated body must be the "
