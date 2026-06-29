@@ -70,6 +70,7 @@ INTERNAL_CLIENT_HEADER = "X-Internal-Client"
 
 _FIELD_ENV_NAMES = {
     "auth_base_url": ("LIVE_TEST_AUTH_BASE",),
+    "internal_auth_base_url": ("LIVE_TEST_INTERNAL_AUTH_BASE",),
     "auth_health_url": ("LIVE_TEST_AUTH_HEALTH_URL",),
     "admin_email": ("LIVE_TEST_ADMIN_EMAIL",),
     "admin_password": ("LIVE_TEST_ADMIN_PASSWORD",),
@@ -96,6 +97,7 @@ class LiveTestConfig:
     """Configuration used by live security suites and pytest fixtures."""
 
     auth_base_url: str = "http://localhost:9000/user"
+    internal_auth_base_url: str | None = None
     auth_health_url: str | None = None
     admin_email: str = "admin@example.com"
     admin_password: str = DEFAULT_PLACEHOLDER_VALUE
@@ -125,6 +127,9 @@ class LiveTestConfig:
             auth_base_url=os.getenv(
                 "LIVE_TEST_AUTH_BASE", "http://localhost:9000/user"
             ).rstrip("/"),
+            internal_auth_base_url=(
+                os.getenv("LIVE_TEST_INTERNAL_AUTH_BASE", "").rstrip("/") or None
+            ),
             auth_health_url=(
                 os.getenv("LIVE_TEST_AUTH_HEALTH_URL", "").rstrip("/") or None
             ),
@@ -173,6 +178,9 @@ class LiveTestConfig:
         return replace(
             self,
             auth_base_url=self.auth_base_url.rstrip("/"),
+            internal_auth_base_url=self.internal_auth_base_url.rstrip("/")
+            if self.internal_auth_base_url
+            else None,
             auth_health_url=self.auth_health_url.rstrip("/")
             if self.auth_health_url
             else None,
@@ -203,6 +211,17 @@ class LiveTestConfig:
             "No service URL configured. Set LIVE_TEST_SVC_BASE or "
             "LIVE_TEST_SVC_BASES, or call configure(service_base_url=...)."
         )
+
+    def private_api_base_url(self) -> str:
+        """Return the base URL that exposes ``/private/*`` routes.
+
+        Hardened stacks block ``/private`` at the public edge (Traefik returns
+        404), so private-route probes must target the internal service-to-service
+        entrypoint. ``LIVE_TEST_INTERNAL_AUTH_BASE`` carries that URL when set;
+        otherwise we fall back to ``auth_base_url`` for simple stacks where the
+        public base reaches private routes directly.
+        """
+        return self.internal_auth_base_url or self.auth_base_url
 
     def internal_headers(self) -> dict[str, str]:
         """Return private-API auth headers for the configured consumer model.

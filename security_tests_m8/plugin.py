@@ -183,6 +183,18 @@ def pytest_collection_modifyitems(
     redis_skip = pytest.mark.skip(
         reason="Redis unavailable; rate limiting and stateful JTI checks need Redis"
     )
+    redis_unknown_skip = pytest.mark.skip(
+        reason=(
+            "Redis status unknown — health detail unavailable; "
+            "set LIVE_TEST_HEALTH_DETAIL_CREDENTIAL to detect Redis state"
+        )
+    )
+    token_mode_unknown_skip = pytest.mark.skip(
+        reason=(
+            "Token mode unknown — health detail unavailable; set "
+            "LIVE_TEST_HEALTH_DETAIL_CREDENTIAL or LIVE_TEST_TOKEN_MODE"
+        )
+    )
     for item in items:
         alg_marker = item.get_closest_marker("require_algorithm")
         if alg_marker and detected.algorithm not in alg_marker.args:
@@ -196,22 +208,30 @@ def pytest_collection_modifyitems(
             )
             continue
         mode_marker = item.get_closest_marker("require_token_mode")
-        if mode_marker and detected.token_mode not in mode_marker.args:
-            item.add_marker(
-                pytest.mark.skip(
-                    reason=(
-                        f"Stack token_mode is {detected.token_mode!r}; "
-                        f"test requires one of {mode_marker.args}"
+        if mode_marker:
+            if not detected.token_mode_known:
+                item.add_marker(token_mode_unknown_skip)
+                continue
+            if detected.token_mode not in mode_marker.args:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=(
+                            f"Stack token_mode is {detected.token_mode!r}; "
+                            f"test requires one of {mode_marker.args}"
+                        )
                     )
                 )
-            )
-            continue
-        if not detected.redis_ok and (
+                continue
+        needs_redis = (
             item.get_closest_marker("require_redis")
             or "live_stateful" in item.keywords
             or "live_hybrid" in item.keywords
-        ):
-            item.add_marker(redis_skip)
+        )
+        if needs_redis:
+            if not detected.detail_available:
+                item.add_marker(redis_unknown_skip)
+            elif not detected.redis_ok:
+                item.add_marker(redis_skip)
 
 
 @pytest.fixture(scope="session")

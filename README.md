@@ -186,6 +186,7 @@ Or with a live-test env file loaded by CLI `run`, pytest `--live-env-file`, or `
 
 ```bash
 LIVE_TEST_AUTH_BASE=http://localhost:9000/user
+LIVE_TEST_INTERNAL_AUTH_BASE=http://localhost:9000/user
 LIVE_TEST_AUTH_HEALTH_URL=http://localhost:9000/user/health/
 LIVE_TEST_ADMIN_EMAIL=tester@example.com
 LIVE_TEST_ADMIN_PASSWORD=change-this-test-password
@@ -208,6 +209,7 @@ live-test target URLs, or set it to a certificate bundle path such as
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `LIVE_TEST_AUTH_BASE` | Base URL for the auth service | `http://localhost:9000/user` |
+| `LIVE_TEST_INTERNAL_AUTH_BASE` | Internal service-to-service entrypoint that exposes `/private/*`. Hardened stacks block `/private` at the public edge (Traefik → 404), so the F06 per-consumer legacy-shape check targets this URL. Falls back to `LIVE_TEST_AUTH_BASE` when unset | unset |
 | `LIVE_TEST_AUTH_HEALTH_URL` | Optional private/internal auth health URL used for readiness and stack detection | unset |
 | `LIVE_TEST_ADMIN_EMAIL` | Admin login email | `admin@example.com` |
 | `LIVE_TEST_ADMIN_PASSWORD` | Admin login password | `changethis` |
@@ -559,6 +561,7 @@ def test_custom_protected_route(service_url, admin_headers):
 - `public_tls_verify=False` is useful for local HTTPS stacks with self-signed certificates.
 - `LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in checks. Leave them unset to skip those checks, or set them to the real values from the target stack.
 - `LIVE_TEST_PRIVATE_API_CLIENT_ID` is the per-consumer id sent as `X-Internal-Client` alongside `X-Internal-Token` so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0, no shared-secret fallback). Set it together with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check (the retired `X-Internal-Token`-only shape must be rejected with 401). Leave it unset for legacy single-secret stacks.
+- `LIVE_TEST_INTERNAL_AUTH_BASE` is the internal service-to-service entrypoint that exposes `/private/*`. Hardened stacks block `/private` at the public edge (Traefik → 404), so the F06 legacy-shape rejection can only be observed against the internal entrypoint. Set it to that URL (e.g. `http://localhost:9000/user`) when `LIVE_TEST_AUTH_BASE` points at the public edge; it falls back to `LIVE_TEST_AUTH_BASE` when unset, which is correct for simple stacks whose base reaches private routes directly.
 - `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` unlocks the deep `/health` infrastructure detail body (token mode, Redis/DB reachability, degradation modes) used by stack detection and the token-mode / disclosure suites. fa-auth-m8 >= 1.0.0 gates that detail on a dedicated credential decoupled from `PRIVATE_API_SECRET` (plan 9.3), sent via `X-Internal-Token`. Set it to the stack's `HEALTH_DETAIL_CREDENTIAL` so those health-dependent tests can read what they need; the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` only for legacy stacks that still reuse it for the health gate.
 
 ## Development

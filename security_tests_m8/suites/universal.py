@@ -663,6 +663,13 @@ class PrivateAPISuite:
         shared-secret fallback). Presenting only ``X-Internal-Token`` — the
         retired single-secret shape, no ``X-Internal-Client`` — to a private
         route on the internal entrypoint must be rejected (401), never accepted.
+
+        The probe targets ``private_api_base_url()``: hardened stacks block
+        ``/private`` at the public edge (Traefik → 404), so the legacy-shape
+        rejection can only be observed on the internal service-to-service
+        entrypoint. Set ``LIVE_TEST_INTERNAL_AUTH_BASE`` to that URL on such
+        stacks; otherwise this falls back to ``AUTH_BASE`` for simple stacks
+        whose public base reaches private routes directly.
         """
         config = get_config()
         if not (config.private_api_secret and config.private_api_client_id):
@@ -675,7 +682,7 @@ class PrivateAPISuite:
             "email": f"pvt_legacy_{uuid.uuid4().hex[:6]}@redteam-test.com",
         }
         r = requests.post(
-            f"{AUTH_BASE}/private/users/",
+            f"{config.private_api_base_url()}/private/users/",
             json=body,
             headers=config.legacy_internal_headers(),
             timeout=TIMEOUT,
@@ -685,7 +692,9 @@ class PrivateAPISuite:
             f"rejected by the per-consumer issuer. Got {r.status_code}, expected "
             "401. The retired shared-secret fallback must be gone — only "
             "X-Internal-Client + X-Internal-Token (or a short-TTL service token) "
-            "may authenticate /private/* under fa-auth-m8 >= 1.0.0."
+            "may authenticate /private/* under fa-auth-m8 >= 1.0.0. "
+            "(A 404 means the probe hit a public edge that blocks /private — set "
+            "LIVE_TEST_INTERNAL_AUTH_BASE to the internal service entrypoint.)"
         )
 
 
@@ -737,25 +746,26 @@ class MetricsAPISuite:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# F3  HEALTH ENDPOINT EXPOSURE
+# F3  HEALTH ENDPOINT EXPOSURE  (Design B — public shallow-constant)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 class HealthAPISuite:
-    """Category F3 — Health endpoint security.
+    """Category F3 — Health endpoint security (Design B).
 
-    /health is NOT routed through Traefik's public entrypoint so public
-    requests receive 404.  It is only reachable via the internal api entrypoint
-    (port 9000 from within the Docker network).
+    /health IS routed through Traefik's public entrypoint (unlike /metrics and
+    /private which stay internal-only). The ungated body is a constant liveness
+    response — always ``{"status": "ok"}``, independent of Redis/DB state — so
+    no operational status leaks to anonymous callers. Detail (token mode,
+    Redis/DB) is credential-gated via ``HEALTH_DETAIL_CREDENTIAL`` (plan 9.3).
 
-    OPERATOR NOTE: if any test below fails with a non-404 status, it means
-    Traefik is misconfigured — PathPrefix(`/user/health`) is missing from the
-    exclusion list in auth-public-router (dynamic_conf.yml).  Add it and restart
-    Traefik.  See the SECURITY CONTRACT comment in dynamic_conf.yml.
+    OPERATOR NOTE: if test_f3_01 returns 404, PathPrefix(`/user/health`) is still
+    in the exclusion list of auth-public-router (dynamic_conf.yml). Remove it and
+    restart Traefik. Only /user/private and /user/metrics must be excluded.
     """
 
-    def test_f3_01_health_blocked_by_traefik(self):
-        """SECURITY PASS: Traefik must return 404 for public /health."""
+    def test_f3_01_health_publicly_reachable_with_shallow_constant_body(self):
+        """Design B: public /health returns 200 with constant {"status":"ok"} body."""
         try:
             r = requests.get(
                 _public_url("user/health/"),
@@ -764,15 +774,42 @@ class HealthAPISuite:
             )
         except requests.exceptions.SSLError:
             return
-        assert r.status_code == 404, (
-            "[SECURITY FAIL: TRAEFIK] /user/health is publicly routed. "
-            f"from auth-public-router in dynamic_conf.yml. "
-            f"Got {r.status_code}, expected 404. "
-            "Fix: add PathPrefix(`/user/health`) to the exclusion list "
-            "and restart Traefik."
+        assert r.status_code == 200, (
+            "[SECURITY FAIL: TRAEFIK] /user/health is not publicly routed. "
+            f"Got {r.status_code}, expected 200. "
+            "Fix: remove PathPrefix(`/user/health`) from the exclusion list "
+            "in auth-public-router (dynamic_conf.yml). Only /user/private and "
+            "/user/metrics must be excluded."
+        )
+        body = r.json()
+        assert body.get("status") == "ok", (
+            "[SECURITY FAIL-F3-01] Public /health body is not the constant liveness "
+            f'response {{"status":"ok"}}. Got: {body}'
         )
 
-    def test_f3_02_health_absent_from_openapi(self):
+    def test_f3_02_unauthenticated_health_body_has_no_detail_keys(self):
+        """Ungated /health must never leak infrastructure detail to anonymous callers."""
+        try:
+            r = requests.get(
+                _public_url("user/health/"),
+                timeout=TIMEOUT,
+                verify=get_config().public_tls_verify,
+            )
+        except (requests.exceptions.SSLError, requests.exceptions.RequestException):
+            return
+        if r.status_code != 200:
+            return
+        body = r.json()
+        detail_keys = {
+            k for k in body if k in ("redis", "database", "token_mode", "degraded")
+        }
+        assert not detail_keys, (
+            "[SECURITY FAIL-F3-02] Public /health leaks infrastructure detail to "
+            f"anonymous callers: {detail_keys}. The ungated body must be the "
+            'constant {"status":"ok"} — no operational state exposed.'
+        )
+
+    def test_f3_03_health_absent_from_openapi(self):
         """Health endpoint must not appear in the public OpenAPI schema."""
         r = requests.get(f"{AUTH_BASE}/openapi.json", timeout=TIMEOUT)
         paths = r.json().get("paths", {})

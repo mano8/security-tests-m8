@@ -45,6 +45,8 @@ class StackInfo:
     token_mode: str = DEFAULT_STATEFUL_MODE
     has_jwks: bool = False
     redis_ok: bool = True
+    detail_available: bool = False
+    token_mode_known: bool = False
 
     def get(self, key: str, default: object = None) -> object:
         """Dictionary-compatible accessor for ported pytest suites."""
@@ -75,20 +77,24 @@ def _is_reachable_via_meta(auth_base_url: str) -> bool:
 
 def _token_mode_from_health(
     response: requests.Response | None,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool]:
+    """Return (token_mode, redis_ok, detail_available)."""
     token_mode = _configured_token_mode() or DEFAULT_STATEFUL_MODE
     redis_ok = True
+    detail_available = False
     if response is None:
-        return token_mode, redis_ok
+        return token_mode, redis_ok, detail_available
     try:
         body = response.json()
+        if "token_mode" in body or "redis" in body:
+            detail_available = True
         if "token_mode" in body:
             token_mode = str(body["token_mode"])
         if "redis" in body:
             redis_ok = body["redis"] == "ok"
     except (KeyError, ValueError, TypeError):
         pass
-    return token_mode, redis_ok
+    return token_mode, redis_ok, detail_available
 
 
 def detect_stack() -> StackInfo:
@@ -98,7 +104,8 @@ def detect_stack() -> StackInfo:
     if health_response is None and not _is_reachable_via_meta(config.auth_base_url):
         return StackInfo()
 
-    token_mode, redis_ok = _token_mode_from_health(health_response)
+    token_mode, redis_ok, detail_available = _token_mode_from_health(health_response)
+    token_mode_known = detail_available or _configured_token_mode() is not None
     algorithm = "HS256"
     has_jwks = False
     try:
@@ -120,4 +127,6 @@ def detect_stack() -> StackInfo:
         token_mode=token_mode,
         has_jwks=has_jwks,
         redis_ok=redis_ok,
+        detail_available=detail_available,
+        token_mode_known=token_mode_known,
     )
