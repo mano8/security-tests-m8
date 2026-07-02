@@ -21,6 +21,7 @@ from security_tests_m8.suites import (
     InfoDisclosureSuite,
     JWKSSuite,
     JWTStructuralSuite,
+    MediaInternalExposureSuite,
     MetricsAPISuite,
     PrivateAPISuite,
     RateLimitingSuite,
@@ -56,6 +57,10 @@ class TestPrivateAPI(PrivateAPISuite):
 
 
 class TestMetrics(MetricsAPISuite):
+    pass
+
+
+class TestMediaInternalExposure(MediaInternalExposureSuite):
     pass
 
 

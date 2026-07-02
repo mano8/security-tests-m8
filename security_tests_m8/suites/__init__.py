@@ -8,6 +8,7 @@ from security_tests_m8.suites.algorithms import (
     JWKSSuite,
 )
 from security_tests_m8.suites.deployment import DeploymentPreflightSuite
+from security_tests_m8.suites.media import MediaInternalExposureSuite
 from security_tests_m8.suites.service import (
     ConfiguredProtectedEndpointsSuite,
     ConfiguredServiceInfoDisclosureSuite,
@@ -53,6 +54,7 @@ __all__ = [
     "InfoDisclosureSuite",
     "JWKSSuite",
     "JWTStructuralSuite",
+    "MediaInternalExposureSuite",
     "MetricsAPISuite",
     "PrivateAPISuite",
     "ProtectedEndpointSuite",

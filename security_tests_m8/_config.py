@@ -89,6 +89,8 @@ _FIELD_ENV_NAMES = {
     "fail_fast_preflight": ("LIVE_TEST_FAIL_FAST_PREFLIGHT",),
     "forbid_bootstrap_superuser": ("LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER",),
     "protected_endpoints": ("LIVE_TEST_PROTECTED_ENDPOINTS",),
+    "media_public_prefix": ("LIVE_TEST_MEDIA_PUBLIC_PREFIX",),
+    "media_internal_token": ("LIVE_TEST_MEDIA_INTERNAL_TOKEN",),
 }
 
 
@@ -116,6 +118,8 @@ class LiveTestConfig:
     fail_fast_preflight: bool = False
     forbid_bootstrap_superuser: bool = True
     protected_endpoints: dict[str, list[str]] = field(default_factory=dict)
+    media_public_prefix: str = "media"
+    media_internal_token: str | None = None
 
     @classmethod
     def from_env(cls) -> LiveTestConfig:
@@ -158,6 +162,8 @@ class LiveTestConfig:
                 "LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER", True
             ),
             protected_endpoints=_env_endpoint_map("LIVE_TEST_PROTECTED_ENDPOINTS"),
+            media_public_prefix=os.getenv("LIVE_TEST_MEDIA_PUBLIC_PREFIX", "media"),
+            media_internal_token=os.getenv("LIVE_TEST_MEDIA_INTERNAL_TOKEN"),
         ).normalized()
 
     def normalized(self) -> LiveTestConfig:
@@ -191,6 +197,7 @@ class LiveTestConfig:
             if self.public_base_url
             else None,
             protected_endpoints=protected_endpoints,
+            media_public_prefix=self.media_public_prefix.strip("/"),
         )
 
     def resolve_service_base_url(self, service: str | None = None) -> str:
@@ -253,6 +260,32 @@ class LiveTestConfig:
         if not credential:
             return {}
         return {INTERNAL_TOKEN_HEADER: credential}
+
+    def media_internal_base_url(self) -> str | None:
+        """Return the public-edge base for media internal callback routes.
+
+        Media internal worker callbacks live at ``/media/v1/internal/*`` behind
+        the ``media_public_prefix`` segment. A hardened public router must exclude
+        that prefix (plan 11.1), so probing this URL from the public entrypoint
+        must return a proxy-layer 404. Returns ``None`` when no public entrypoint
+        is configured, so exposure probes can skip instead of guessing a URL.
+        """
+        if self.public_base_url is None:
+            return None
+        return f"{self.public_base_url}/{self.media_public_prefix}/v1/internal"
+
+    def media_internal_headers(self) -> dict[str, str]:
+        """Return the worker bearer header for media internal callbacks.
+
+        Emits ``Authorization: Bearer <token>`` when
+        ``LIVE_TEST_MEDIA_INTERNAL_TOKEN`` (the ``MEDIA_INTERNAL_SERVICE_TOKEN``
+        the worker presents) is configured, so an exposure probe can prove that
+        even a *valid* worker token is still blocked at the public edge. Empty
+        when unset, keeping the probe unauthenticated.
+        """
+        if not self.media_internal_token:
+            return {}
+        return {"Authorization": f"Bearer {self.media_internal_token}"}
 
     def legacy_internal_headers(self) -> dict[str, str]:
         """Return the legacy ``X-Internal-Token``-only private-API headers.

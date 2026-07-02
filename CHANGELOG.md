@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **11.1 Media internal callback ingress exposure suite.** New reusable
+  `MediaInternalExposureSuite` (Category G) proves that media worker callbacks
+  under `/media/v1/internal/*` are blocked at the public edge (proxy-layer 404)
+  with no bearer, a wrong bearer, and — opt-in — a *valid* worker token, so a
+  stolen `MEDIA_INTERNAL_SERVICE_TOKEN` cannot be replayed through the public
+  domain. Wired into `full_security` as `TestMediaInternalExposure`.
+  - New config: `LIVE_TEST_MEDIA_PUBLIC_PREFIX` (default `media`) and opt-in
+    `LIVE_TEST_MEDIA_INTERNAL_TOKEN`, exposed on `LiveTestConfig` via
+    `media_internal_base_url()` and `media_internal_headers()`.
+
 ## 0.3.0 — 2026-06-28
 
 ### Fixed

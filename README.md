@@ -228,6 +228,8 @@ live-test target URLs, or set it to a certificate bundle path such as
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | Abort before collection if auth, services, or credentials are not usable | `false` |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | Refuse `FIRST_SUPERUSER` from `auth.env` as the test account | `true` |
 | `LIVE_TEST_PROTECTED_ENDPOINTS` | JSON object of service names to protected endpoint arrays | `{}` |
+| `LIVE_TEST_MEDIA_PUBLIC_PREFIX` | Public path prefix the media stack is mounted under at the edge; the `MediaInternalExposureSuite` probes `<public-base>/<prefix>/v1/internal/*` | `media` |
+| `LIVE_TEST_MEDIA_INTERNAL_TOKEN` | Worker `MEDIA_INTERNAL_SERVICE_TOKEN`; opt-in — proves a *valid* worker token is still blocked (404) at the public edge for `/media/v1/internal/*` | unset |
 
 ## Choosing An Env File
 
@@ -341,6 +343,7 @@ Universal auth and HTTP security suites:
 - `RateLimitingSuite`
 - `CORSSuite`
 - `PrivateAPISuite`
+- `MediaInternalExposureSuite`
 - `MetricsAPISuite`
 - `HealthAPISuite`
 - `AvatarUrlSuite`
