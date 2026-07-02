@@ -230,6 +230,8 @@ live-test target URLs, or set it to a certificate bundle path such as
 | `LIVE_TEST_PROTECTED_ENDPOINTS` | JSON object of service names to protected endpoint arrays | `{}` |
 | `LIVE_TEST_MEDIA_PUBLIC_PREFIX` | Public path prefix the media stack is mounted under at the edge; the `MediaInternalExposureSuite` probes `<public-base>/<prefix>/v1/internal/*` | `media` |
 | `LIVE_TEST_MEDIA_INTERNAL_TOKEN` | Worker `MEDIA_INTERNAL_SERVICE_TOKEN`; opt-in — proves a *valid* worker token is still blocked (404) at the public edge for `/media/v1/internal/*` | unset |
+| `LIVE_TEST_API_KEY` | Known-valid plaintext API key (minted before a Redis outage); opt-in — the `ApiKeyRedisDegradedSuite` verifies it fails closed (503) while Redis is down | unset |
+| `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT` | Declares the stack runs strict API-key rate limiting (production/strict); opt-in — enables the fail-closed assertion for `ApiKeyRedisDegradedSuite` | `false` |
 
 ## Choosing An Env File
 
@@ -351,6 +353,7 @@ Universal auth and HTTP security suites:
 - `SecurityHeadersSuite`
 - `CookieSecuritySuite`
 - `ApiKeySuite`
+- `ApiKeyRedisDegradedSuite`
 
 Token-mode suites:
 

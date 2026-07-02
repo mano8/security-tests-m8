@@ -91,6 +91,8 @@ _FIELD_ENV_NAMES = {
     "protected_endpoints": ("LIVE_TEST_PROTECTED_ENDPOINTS",),
     "media_public_prefix": ("LIVE_TEST_MEDIA_PUBLIC_PREFIX",),
     "media_internal_token": ("LIVE_TEST_MEDIA_INTERNAL_TOKEN",),
+    "api_key": ("LIVE_TEST_API_KEY",),
+    "api_key_strict_rate_limit": ("LIVE_TEST_API_KEY_STRICT_RATE_LIMIT",),
 }
 
 
@@ -120,6 +122,8 @@ class LiveTestConfig:
     protected_endpoints: dict[str, list[str]] = field(default_factory=dict)
     media_public_prefix: str = "media"
     media_internal_token: str | None = None
+    api_key: str | None = None
+    api_key_strict_rate_limit: bool = False
 
     @classmethod
     def from_env(cls) -> LiveTestConfig:
@@ -164,6 +168,10 @@ class LiveTestConfig:
             protected_endpoints=_env_endpoint_map("LIVE_TEST_PROTECTED_ENDPOINTS"),
             media_public_prefix=os.getenv("LIVE_TEST_MEDIA_PUBLIC_PREFIX", "media"),
             media_internal_token=os.getenv("LIVE_TEST_MEDIA_INTERNAL_TOKEN"),
+            api_key=os.getenv("LIVE_TEST_API_KEY"),
+            api_key_strict_rate_limit=_env_bool(
+                "LIVE_TEST_API_KEY_STRICT_RATE_LIMIT", False
+            ),
         ).normalized()
 
     def normalized(self) -> LiveTestConfig:
@@ -286,6 +294,33 @@ class LiveTestConfig:
         if not self.media_internal_token:
             return {}
         return {"Authorization": f"Bearer {self.media_internal_token}"}
+
+    def api_key_verify_headers(self) -> dict[str, str]:
+        """Return the ``X-API-Key`` header for the Redis-degraded verify probe.
+
+        Emits ``X-API-Key: <key>`` when ``LIVE_TEST_API_KEY`` (a known-valid
+        plaintext API key) is configured, so the degraded-mode suite can prove
+        that a *valid* key is still refused when Redis rate limiting is
+        unavailable in strict posture. The key is supplied out of band because
+        during a Redis outage a stateful stack may be unable to mint a fresh key
+        via login. Empty when unset, so the probe skips instead of guessing.
+        """
+        if not self.api_key:
+            return {}
+        return {"X-API-Key": self.api_key}
+
+    def expect_api_key_fail_closed(self) -> bool:
+        """Whether the target stack is declared to enforce strict API-key limiting.
+
+        Set ``LIVE_TEST_API_KEY_STRICT_RATE_LIMIT=true`` when the stack runs in
+        production/strict posture (``ENVIRONMENT=production``,
+        ``STRICT_PRODUCTION_MODE``, ``AUTH_STRICT_MODE``, or an explicit
+        ``API_KEY_STRICT_RATE_LIMIT``). In that posture a valid API key must be
+        refused (503) rather than silently accepted without rate limiting when
+        Redis is down (plan 11.3). Non-strict development stacks may fail open,
+        so the degraded assertion only runs when this is opted in.
+        """
+        return self.api_key_strict_rate_limit
 
     def legacy_internal_headers(self) -> dict[str, str]:
         """Return the legacy ``X-Internal-Token``-only private-API headers.

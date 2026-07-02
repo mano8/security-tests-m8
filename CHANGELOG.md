@@ -4,6 +4,19 @@
 
 ### Added
 
+- **11.3 API-key Redis-degraded fail-closed suite.** New reusable
+  `ApiKeyRedisDegradedSuite` (Category N) proves that in production/strict
+  posture a *valid* API key is refused with `503` when Redis rate limiting is
+  unavailable, rather than silently accepted without limits. It is the mirror of
+  `ApiKeySuite` M03/M04 (which are `require_redis` and skip when Redis is down):
+  this suite runs only while Redis is degraded. Opt-in and self-skipping — it
+  asserts only when strict posture is declared and health detail confirms Redis
+  is down. Wired into `full_security` as `TestApiKeyRedisDegraded`.
+  - New config: opt-in `LIVE_TEST_API_KEY` (known-valid plaintext key minted
+    before the outage) and `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT`, exposed on
+    `LiveTestConfig` via `api_key_verify_headers()` and
+    `expect_api_key_fail_closed()`.
+
 - **11.1 Media internal callback ingress exposure suite.** New reusable
   `MediaInternalExposureSuite` (Category G) proves that media worker callbacks
   under `/media/v1/internal/*` are blocked at the public edge (proxy-layer 404)

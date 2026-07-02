@@ -3,6 +3,7 @@
 # ruff: noqa: D101
 
 from security_tests_m8.suites import (
+    ApiKeyRedisDegradedSuite,
     ApiKeySuite,
     AsymmetricJWTSuite,
     AuthAttackSuite,
@@ -85,6 +86,10 @@ class TestCookieSecurity(CookieSecuritySuite):
 
 
 class TestApiKeys(ApiKeySuite):
+    pass
+
+
+class TestApiKeyRedisDegraded(ApiKeyRedisDegradedSuite):
     pass
 
 
