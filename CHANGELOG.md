@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-07-03
 
 ### Fixed
 
@@ -19,6 +19,24 @@
   caused by an unavailable service.
 
 ### Added
+
+- **11.7/11.8 CI workflow policy + reproducible dependency set checks.**
+  `workflow_policy.py` extended with 6 new reusable helpers: `ci_has_no_duplicate_workflow`
+  and `ci_has_secret_scan_job` (11.7 — canonical quality gate enforcement); and
+  `constraints_file_exists`, `constraints_file_has_no_custom_index`,
+  `constraints_file_pins_deps`, `lock_file_uses_require_hashes` (11.8 — locked
+  resolver policy). Own-repo compliance tests updated to call the reusable wrappers.
+  Own-repo 11.8 coverage: `constraints-all.txt` generated via `pip-compile
+  --extra=dev --no-emit-index-url` (public PyPI only, 123 lines) with tests for
+  existence, dep pinning, and no custom index URL. 18 new tests; 190 passed, 100%
+  coverage; ruff/mypy/bandit clean.
+
+- **11.2b Private API suite coverage gate.** New `tests/test_private_api_gate.py`
+  uses AST-based policy tests to assert that `PrivateAPISuite` (Category F) always
+  ships all 6 required F-methods (`f01`–`f06`), each with a docstring, that
+  `TestPrivateAPI` in `full_security.py` inherits from `PrivateAPISuite`, and that
+  `PrivateAPISuite` is listed in `suites/__init__.py __all__`. 4 policy tests;
+  194 passed, 100% coverage; ruff/mypy/bandit clean.
 
 - **11.5/11.6 Reusable workflow policy checks + PyPI Trusted Publishing.** New
   `security_tests_m8/workflow_policy.py` module provides 11 importable functions

@@ -569,6 +569,40 @@ def test_custom_protected_route(service_url, admin_headers):
 - `LIVE_TEST_PRIVATE_API_CLIENT_ID` is the per-consumer id sent as `X-Internal-Client` alongside `X-Internal-Token` so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0, no shared-secret fallback). Set it together with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check (the retired `X-Internal-Token`-only shape must be rejected with 401). Leave it unset for legacy single-secret stacks.
 - `LIVE_TEST_INTERNAL_AUTH_BASE` is the internal service-to-service entrypoint that exposes `/private/*`. Hardened stacks block `/private` at the public edge (Traefik → 404), so the F06 legacy-shape rejection can only be observed against the internal entrypoint. Set it to that URL (e.g. `http://localhost:9000/user`) when `LIVE_TEST_AUTH_BASE` points at the public edge; it falls back to `LIVE_TEST_AUTH_BASE` when unset, which is correct for simple stacks whose base reaches private routes directly.
 - `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` unlocks the deep `/health` infrastructure detail body (token mode, Redis/DB reachability, degradation modes) used by stack detection and the token-mode / disclosure suites. fa-auth-m8 >= 1.0.0 gates that detail on a dedicated credential decoupled from `PRIVATE_API_SECRET` (plan 9.3), sent via `X-Internal-Token`. Set it to the stack's `HEALTH_DETAIL_CREDENTIAL` so those health-dependent tests can read what they need; the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` only for legacy stacks that still reuse it for the health gate.
+- **Unavailable services are skipped, not reported as failures.** If the reverse proxy returns `502`/`504` or Traefik's no-route `404 page not found`, or if the connection is dropped, the test is skipped rather than failing with a misleading security finding. `503` is excluded from this skip so the `ApiKeyRedisDegradedSuite` can still assert it as the secure fail-closed response.
+
+## Workflow Policy Module
+
+`security_tests_m8.workflow_policy` provides importable helpers for asserting CI/CD workflow compliance across any M8 repo. Import the functions you need in your own `tests/test_ci_policy.py`:
+
+```python
+from security_tests_m8.workflow_policy import (
+    # Docker publish integrity (11.5)
+    docker_publish_job_has_oidc_permission,
+    docker_publish_job_has_attestation_permission,
+    docker_publish_has_provenance,
+    docker_publish_has_sbom_step,
+    docker_publish_has_cosign_step,
+    # PyPI Trusted Publishing (11.6)
+    pypi_workflow_has_no_api_token,
+    pypi_publish_job_has_oidc_permission,
+    pypi_publish_job_has_protected_environment,
+    # CI workflow policy (11.7)
+    ci_has_no_duplicate_workflow,
+    ci_has_secret_scan_job,
+    # Reproducible dependency sets (11.8)
+    constraints_file_exists,
+    constraints_file_has_no_custom_index,
+    constraints_file_pins_deps,
+    lock_file_uses_require_hashes,
+    # SHA-pin helpers
+    load_workflow,
+    action_refs,
+    all_actions_sha_pinned,
+)
+```
+
+Each function takes a `repo_root: Path` argument and returns a `bool`. Use them directly in pytest functions or as building blocks for custom policy assertions.
 
 ## Development
 

@@ -27,15 +27,29 @@ CLI mode is recommended for normal users and excludes destructive tests by defau
 
 ## What It Runs
 
-The example includes:
+The example runs every suite wired into `full_security`, including:
 
-- universal auth security suites
-- stateful/stateless/hybrid contract suites
-- RS256/JWKS/cross-service JWT suites
-- HS256 rejection and weak-key suites
+- universal auth security suites (attack, structural, authorization, rate limiting, CORS, headers, cookies, disclosure)
+- stateful/stateless/hybrid token contract suites
+- RS256/JWKS/cross-service JWT suites; HS256 rejection and weak-key suites
 - protected endpoint checks for `/fastapi/category/` and `/fastapi/dashboard/users/activity/`
+- **`MediaInternalExposureSuite`** (Category G) — proves media worker callbacks at
+  `/media/v1/internal/*` are blocked at the public edge (proxy-layer `404`) with no
+  bearer, a wrong bearer, and — when `LIVE_TEST_MEDIA_INTERNAL_TOKEN` is set — a
+  valid worker token. Requires `LIVE_TEST_MEDIA_PUBLIC_PREFIX` (default `media`).
+- **`ApiKeyRedisDegradedSuite`** (Category N) — proves a valid API key is refused
+  with `503` in production/strict posture when Redis is down. Opt-in: runs only when
+  `LIVE_TEST_API_KEY` and `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT=true` are set and
+  the health detail confirms Redis is degraded.
 
-The hardened stack is RS256 and stateful, so pytest automatically skips suites that do not apply to that detected stack.
+Suites that do not match the detected stack (algorithm, token mode, Redis availability,
+available opt-in config) are skipped automatically — the same file works across
+HS256/RS256/ES256 and stateless/stateful/hybrid stacks without edits.
+
+**Unavailable services are skipped, not reported as failures.** If the reverse proxy
+returns `502`/`504`, Traefik's no-route `404 page not found`, or the connection is
+dropped, the test is converted to a skip so a briefly unreachable backend never
+appears as a false security finding.
 
 ## Files
 
@@ -117,30 +131,33 @@ pytest -m live_stateful
 
 ## Configuration Values
 
-The example defaults are defined in `tests/live/conftest.py` and can be overridden with environment variables.
+The example defaults are defined in `tests/live/conftest.py` and can be overridden with environment variables. All variables are also documented inline in `.env.example`.
 
-| Variable | Example value |
-| --- | --- |
-| `LIVE_TEST_AUTH_BASE` | `http://localhost:9000/user` |
-| `LIVE_TEST_SVC_BASE` | `http://localhost:9000/fastapi` |
-| `LIVE_TEST_ADMIN_EMAIL` | `tester@example.com` |
-| `LIVE_TEST_ADMIN_PASSWORD` | `change-this-test-password` |
-| `LIVE_TEST_PUBLIC_BASE` | `https://localhost:4430` |
-| `LIVE_TEST_PUBLIC_TLS_VERIFY` | `false` |
-| `LIVE_TEST_PRIVATE_API_SECRET` | real `PRIVATE_API_SECRET`, or unset |
-| `LIVE_TEST_PRIVATE_API_CLIENT_ID` | per-consumer id (e.g. `media-service`) for fa-auth-m8 >= 1.0.0, or unset |
-| `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` | real `HEALTH_DETAIL_CREDENTIAL` (unlocks deep `/health` detail), or unset |
-| `LIVE_TEST_REFRESH_SECRET_KEY` | real `REFRESH_SECRET_KEY`, or unset |
-| `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` |
-| `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` |
-| `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` |
-| `LIVE_TEST_REPO_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` |
-| `LIVE_TEST_DEPLOYMENT_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` |
-
-`LIVE_TEST_REPO_ROOT` lets asymmetric-key tests inspect the hardened stack's generated `keys/private.pem` and `keys/public.pem` files.
-`LIVE_TEST_PRIVATE_API_SECRET` and `LIVE_TEST_REFRESH_SECRET_KEY` are opt-in secret-exposure checks. If they are unset, those specific tests skip.
-`LIVE_TEST_PRIVATE_API_CLIENT_ID` adds the `X-Internal-Client` header so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0); set it with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check. Leave it unset for legacy single-secret stacks.
-`LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` is the dedicated credential that unlocks the deep `/health` detail body (token mode, Redis/DB) which stack detection and the token-mode/disclosure suites read. fa-auth-m8 >= 1.0.0 gates that detail on `HEALTH_DETAIL_CREDENTIAL` decoupled from `PRIVATE_API_SECRET`; set it so those tests get the info they need (otherwise the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` for legacy stacks only).
+| Variable | Example value | Notes |
+| --- | --- | --- |
+| `LIVE_TEST_AUTH_BASE` | `http://localhost:9000/user` | Public auth base URL |
+| `LIVE_TEST_INTERNAL_AUTH_BASE` | `http://localhost:9001/user` | Internal entrypoint for `/private/*`; falls back to `LIVE_TEST_AUTH_BASE` when unset |
+| `LIVE_TEST_SVC_BASE` | `http://localhost:9000/fastapi` | Single/default downstream service |
+| `LIVE_TEST_SVC_BASES` | `{"fastapi":"http://localhost:9000/fastapi"}` | Named service map |
+| `LIVE_TEST_DEFAULT_SVC` | `fastapi` | Default service name |
+| `LIVE_TEST_ADMIN_EMAIL` | `tester@example.com` | Dedicated test superuser — never use `FIRST_SUPERUSER` |
+| `LIVE_TEST_ADMIN_PASSWORD` | `change-this-test-password` | Test superuser password |
+| `LIVE_TEST_PUBLIC_BASE` | `https://localhost:4430` | Public HTTPS edge for header/CORS/media-ingress checks |
+| `LIVE_TEST_PUBLIC_TLS_VERIFY` | `false` | `false` = skip (self-signed); `true` = system CA; path = bundle |
+| `LIVE_TEST_PRIVATE_API_SECRET` | real `PRIVATE_API_SECRET` | Opt-in; unlocks F01–F05 private-API probes. Unset = skip |
+| `LIVE_TEST_PRIVATE_API_CLIENT_ID` | per-consumer id, e.g. `media-service` | Opt-in; per-consumer id for fa-auth-m8 >= 1.0.0. Set with `LIVE_TEST_PRIVATE_API_SECRET` to also enable F06 |
+| `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` | real `HEALTH_DETAIL_CREDENTIAL` | Opt-in; unlocks deep `/health` detail (token mode, Redis/DB). Falls back to `LIVE_TEST_PRIVATE_API_SECRET` for legacy stacks |
+| `LIVE_TEST_REFRESH_SECRET_KEY` | real `REFRESH_SECRET_KEY` | Opt-in; enables refresh-token and cookie tests |
+| `LIVE_TEST_MEDIA_PUBLIC_PREFIX` | `media` | Edge prefix for media suites (default `media`) |
+| `LIVE_TEST_MEDIA_INTERNAL_TOKEN` | real `MEDIA_INTERNAL_SERVICE_TOKEN` | Opt-in; enables the valid-worker-token probe in `MediaInternalExposureSuite` |
+| `LIVE_TEST_API_KEY` | valid plaintext API key | Opt-in; minted before Redis outage for `ApiKeyRedisDegradedSuite` |
+| `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT` | `true` | Opt-in; declares strict posture to enable fail-closed assertion |
+| `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` | Abort before collection if auth/services/credentials are not usable |
+| `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` | Refuse `FIRST_SUPERUSER` as the test account |
+| `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` | Routes for `ConfiguredProtectedEndpointsSuite` |
+| `LIVE_TEST_TIMEOUT` | `10` | Request timeout in seconds |
+| `LIVE_TEST_REPO_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` | Stack root; asymmetric-key tests read `keys/private.pem` from here |
+| `LIVE_TEST_DEPLOYMENT_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` | Compose directory for deployment preflight |
 
 ## Adapting To Another Stack
 
