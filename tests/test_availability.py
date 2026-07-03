@@ -35,7 +35,10 @@ def test_traefik_no_route_404_is_unavailable() -> None:
 
 
 def test_application_404_json_is_not_unavailable() -> None:
-    assert _availability.unavailable_reason(_response(404, '{"detail":"Not Found"}')) is None
+    assert (
+        _availability.unavailable_reason(_response(404, '{"detail":"Not Found"}'))
+        is None
+    )
 
 
 def test_long_body_mentioning_phrase_is_not_unavailable() -> None:
