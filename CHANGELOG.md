@@ -4,6 +4,20 @@
 
 ### Added
 
+- **11.5/11.6 Reusable workflow policy checks + PyPI Trusted Publishing.** New
+  `security_tests_m8/workflow_policy.py` module provides 11 importable functions
+  for asserting CI/CD workflow compliance in any M8 repo: Docker publish integrity
+  (`docker_publish_job_has_oidc_permission`, `docker_publish_job_has_attestation_permission`,
+  `docker_publish_has_provenance`, `docker_publish_has_sbom_step`,
+  `docker_publish_has_cosign_step`) and PyPI Trusted Publishing
+  (`pypi_workflow_has_no_api_token`, `pypi_publish_job_has_oidc_permission`,
+  `pypi_publish_job_has_protected_environment`) plus SHA-pinning helpers
+  (`action_refs`, `all_actions_sha_pinned`, `load_workflow`). `tests/test_ci_policy.py`
+  adds 45 tests: 7 verify this repo's own `PiPy.yml`/`CI.yaml` invariants (11.6 gate),
+  38 cover every function branch with synthetic workflow fixtures. Own `PiPy.yml`
+  updated: `PYPI_API_TOKEN` removed (OIDC Trusted Publishing is now the only publish
+  path) and environment URL corrected from `fastapi-m8` to `security-tests-m8`.
+
 - **11.3 API-key Redis-degraded fail-closed suite.** New reusable
   `ApiKeyRedisDegradedSuite` (Category N) proves that in production/strict
   posture a *valid* API key is refused with `503` when Redis rate limiting is
