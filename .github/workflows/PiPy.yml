@@ -41,7 +41,7 @@ jobs:
     # For more information, see: https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#deployment-protection-rules
     environment:
       name: pypi
-      url: https://pypi.org/project/fastapi-m8/${{ github.event.release.name }}
+      url: https://pypi.org/project/security-tests-m8/${{ github.event.release.name }}
 
     steps:
       - name: Retrieve release distributions
@@ -52,8 +52,6 @@ jobs:
 
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
   sbom:
     name: Generate & attach SBOM
