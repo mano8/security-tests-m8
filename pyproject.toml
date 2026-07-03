@@ -120,6 +120,7 @@ markers = [
 
 [tool.coverage.run]
 omit = [
+    "security_tests_m8/_availability.py",
     "security_tests_m8/_client.py",
     "security_tests_m8/_detection.py",
     "security_tests_m8/_preflight.py",

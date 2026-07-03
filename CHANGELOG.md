@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Unavailable target never surfaces as a security finding.** A backend that is
+  briefly unreachable behind the reverse proxy used to fail exact-status live
+  assertions with misleading CRITICAL messages — e.g. cross-service
+  `test_i01/i03/i04/i05` reporting "alg=none accepted" / "attacker key accepted"
+  when the response was actually Traefik's bare `404 page not found` because
+  `fastapi_full` was down. New `security_tests_m8/_availability.py` central guard
+  is armed for the call phase of every `live` test (`plugin.pytest_runtest_call`)
+  and, via the existing `Session.request` patch in `_requests.py`, converts a
+  proxy-down signal (`502`/`504`, Traefik's no-route `404 page not found`) or a
+  dropped connection to a **skip** instead of a failed security assertion. `503`
+  is deliberately excluded so the API-key fail-closed suites keep asserting it as
+  the secure response. The final report can no longer show a false security issue
+  caused by an unavailable service.
+
 ### Added
 
 - **11.5/11.6 Reusable workflow policy checks + PyPI Trusted Publishing.** New
