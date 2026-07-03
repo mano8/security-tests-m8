@@ -3,6 +3,7 @@
 # ruff: noqa: D101
 
 from security_tests_m8.suites import (
+    ApiKeyRedisDegradedSuite,
     ApiKeySuite,
     AsymmetricJWTSuite,
     AuthAttackSuite,
@@ -21,6 +22,7 @@ from security_tests_m8.suites import (
     InfoDisclosureSuite,
     JWKSSuite,
     JWTStructuralSuite,
+    MediaInternalExposureSuite,
     MetricsAPISuite,
     PrivateAPISuite,
     RateLimitingSuite,
@@ -59,6 +61,10 @@ class TestMetrics(MetricsAPISuite):
     pass
 
 
+class TestMediaInternalExposure(MediaInternalExposureSuite):
+    pass
+
+
 class TestHealth(HealthAPISuite):
     pass
 
@@ -80,6 +86,10 @@ class TestCookieSecurity(CookieSecuritySuite):
 
 
 class TestApiKeys(ApiKeySuite):
+    pass
+
+
+class TestApiKeyRedisDegraded(ApiKeyRedisDegradedSuite):
     pass
 
 

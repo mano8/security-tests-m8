@@ -89,6 +89,10 @@ _FIELD_ENV_NAMES = {
     "fail_fast_preflight": ("LIVE_TEST_FAIL_FAST_PREFLIGHT",),
     "forbid_bootstrap_superuser": ("LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER",),
     "protected_endpoints": ("LIVE_TEST_PROTECTED_ENDPOINTS",),
+    "media_public_prefix": ("LIVE_TEST_MEDIA_PUBLIC_PREFIX",),
+    "media_internal_token": ("LIVE_TEST_MEDIA_INTERNAL_TOKEN",),
+    "api_key": ("LIVE_TEST_API_KEY",),
+    "api_key_strict_rate_limit": ("LIVE_TEST_API_KEY_STRICT_RATE_LIMIT",),
 }
 
 
@@ -116,6 +120,10 @@ class LiveTestConfig:
     fail_fast_preflight: bool = False
     forbid_bootstrap_superuser: bool = True
     protected_endpoints: dict[str, list[str]] = field(default_factory=dict)
+    media_public_prefix: str = "media"
+    media_internal_token: str | None = None
+    api_key: str | None = None
+    api_key_strict_rate_limit: bool = False
 
     @classmethod
     def from_env(cls) -> LiveTestConfig:
@@ -158,6 +166,12 @@ class LiveTestConfig:
                 "LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER", True
             ),
             protected_endpoints=_env_endpoint_map("LIVE_TEST_PROTECTED_ENDPOINTS"),
+            media_public_prefix=os.getenv("LIVE_TEST_MEDIA_PUBLIC_PREFIX", "media"),
+            media_internal_token=os.getenv("LIVE_TEST_MEDIA_INTERNAL_TOKEN"),
+            api_key=os.getenv("LIVE_TEST_API_KEY"),
+            api_key_strict_rate_limit=_env_bool(
+                "LIVE_TEST_API_KEY_STRICT_RATE_LIMIT", False
+            ),
         ).normalized()
 
     def normalized(self) -> LiveTestConfig:
@@ -191,6 +205,7 @@ class LiveTestConfig:
             if self.public_base_url
             else None,
             protected_endpoints=protected_endpoints,
+            media_public_prefix=self.media_public_prefix.strip("/"),
         )
 
     def resolve_service_base_url(self, service: str | None = None) -> str:
@@ -253,6 +268,59 @@ class LiveTestConfig:
         if not credential:
             return {}
         return {INTERNAL_TOKEN_HEADER: credential}
+
+    def media_internal_base_url(self) -> str | None:
+        """Return the public-edge base for media internal callback routes.
+
+        Media internal worker callbacks live at ``/media/v1/internal/*`` behind
+        the ``media_public_prefix`` segment. A hardened public router must exclude
+        that prefix (plan 11.1), so probing this URL from the public entrypoint
+        must return a proxy-layer 404. Returns ``None`` when no public entrypoint
+        is configured, so exposure probes can skip instead of guessing a URL.
+        """
+        if self.public_base_url is None:
+            return None
+        return f"{self.public_base_url}/{self.media_public_prefix}/v1/internal"
+
+    def media_internal_headers(self) -> dict[str, str]:
+        """Return the worker bearer header for media internal callbacks.
+
+        Emits ``Authorization: Bearer <token>`` when
+        ``LIVE_TEST_MEDIA_INTERNAL_TOKEN`` (the ``MEDIA_INTERNAL_SERVICE_TOKEN``
+        the worker presents) is configured, so an exposure probe can prove that
+        even a *valid* worker token is still blocked at the public edge. Empty
+        when unset, keeping the probe unauthenticated.
+        """
+        if not self.media_internal_token:
+            return {}
+        return {"Authorization": f"Bearer {self.media_internal_token}"}
+
+    def api_key_verify_headers(self) -> dict[str, str]:
+        """Return the ``X-API-Key`` header for the Redis-degraded verify probe.
+
+        Emits ``X-API-Key: <key>`` when ``LIVE_TEST_API_KEY`` (a known-valid
+        plaintext API key) is configured, so the degraded-mode suite can prove
+        that a *valid* key is still refused when Redis rate limiting is
+        unavailable in strict posture. The key is supplied out of band because
+        during a Redis outage a stateful stack may be unable to mint a fresh key
+        via login. Empty when unset, so the probe skips instead of guessing.
+        """
+        if not self.api_key:
+            return {}
+        return {"X-API-Key": self.api_key}
+
+    def expect_api_key_fail_closed(self) -> bool:
+        """Whether the target stack is declared to enforce strict API-key limiting.
+
+        Set ``LIVE_TEST_API_KEY_STRICT_RATE_LIMIT=true`` when the stack runs in
+        production/strict posture (``ENVIRONMENT=production``,
+        ``STRICT_PRODUCTION_MODE``, ``AUTH_STRICT_MODE``, or an explicit
+        ``API_KEY_STRICT_RATE_LIMIT``). In that posture a valid API key must be
+        refused (503) rather than silently accepted without rate limiting when
+        Redis is down (plan 11.3). Non-strict development stacks may fail open,
+        so the degraded assertion only runs when this is opted in.
+        """
+        return self.api_key_strict_rate_limit
 
     def legacy_internal_headers(self) -> dict[str, str]:
         """Return the legacy ``X-Internal-Token``-only private-API headers.

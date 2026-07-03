@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.4.0 — 2026-07-03
+
+### Fixed
+
+- **Unavailable target never surfaces as a security finding.** A backend that is
+  briefly unreachable behind the reverse proxy used to fail exact-status live
+  assertions with misleading CRITICAL messages — e.g. cross-service
+  `test_i01/i03/i04/i05` reporting "alg=none accepted" / "attacker key accepted"
+  when the response was actually Traefik's bare `404 page not found` because
+  `fastapi_full` was down. New `security_tests_m8/_availability.py` central guard
+  is armed for the call phase of every `live` test (`plugin.pytest_runtest_call`)
+  and, via the existing `Session.request` patch in `_requests.py`, converts a
+  proxy-down signal (`502`/`504`, Traefik's no-route `404 page not found`) or a
+  dropped connection to a **skip** instead of a failed security assertion. `503`
+  is deliberately excluded so the API-key fail-closed suites keep asserting it as
+  the secure response. The final report can no longer show a false security issue
+  caused by an unavailable service.
+
+### Added
+
+- **11.7/11.8 CI workflow policy + reproducible dependency set checks.**
+  `workflow_policy.py` extended with 6 new reusable helpers: `ci_has_no_duplicate_workflow`
+  and `ci_has_secret_scan_job` (11.7 — canonical quality gate enforcement); and
+  `constraints_file_exists`, `constraints_file_has_no_custom_index`,
+  `constraints_file_pins_deps`, `lock_file_uses_require_hashes` (11.8 — locked
+  resolver policy). Own-repo compliance tests updated to call the reusable wrappers.
+  Own-repo 11.8 coverage: `constraints-all.txt` generated via `pip-compile
+  --extra=dev --no-emit-index-url` (public PyPI only, 123 lines) with tests for
+  existence, dep pinning, and no custom index URL. 18 new tests; 190 passed, 100%
+  coverage; ruff/mypy/bandit clean.
+
+- **11.2b Private API suite coverage gate.** New `tests/test_private_api_gate.py`
+  uses AST-based policy tests to assert that `PrivateAPISuite` (Category F) always
+  ships all 6 required F-methods (`f01`–`f06`), each with a docstring, that
+  `TestPrivateAPI` in `full_security.py` inherits from `PrivateAPISuite`, and that
+  `PrivateAPISuite` is listed in `suites/__init__.py __all__`. 4 policy tests;
+  194 passed, 100% coverage; ruff/mypy/bandit clean.
+
+- **11.5/11.6 Reusable workflow policy checks + PyPI Trusted Publishing.** New
+  `security_tests_m8/workflow_policy.py` module provides 11 importable functions
+  for asserting CI/CD workflow compliance in any M8 repo: Docker publish integrity
+  (`docker_publish_job_has_oidc_permission`, `docker_publish_job_has_attestation_permission`,
+  `docker_publish_has_provenance`, `docker_publish_has_sbom_step`,
+  `docker_publish_has_cosign_step`) and PyPI Trusted Publishing
+  (`pypi_workflow_has_no_api_token`, `pypi_publish_job_has_oidc_permission`,
+  `pypi_publish_job_has_protected_environment`) plus SHA-pinning helpers
+  (`action_refs`, `all_actions_sha_pinned`, `load_workflow`). `tests/test_ci_policy.py`
+  adds 45 tests: 7 verify this repo's own `PiPy.yml`/`CI.yaml` invariants (11.6 gate),
+  38 cover every function branch with synthetic workflow fixtures. Own `PiPy.yml`
+  updated: `PYPI_API_TOKEN` removed (OIDC Trusted Publishing is now the only publish
+  path) and environment URL corrected from `fastapi-m8` to `security-tests-m8`.
+
+- **11.3 API-key Redis-degraded fail-closed suite.** New reusable
+  `ApiKeyRedisDegradedSuite` (Category N) proves that in production/strict
+  posture a *valid* API key is refused with `503` when Redis rate limiting is
+  unavailable, rather than silently accepted without limits. It is the mirror of
+  `ApiKeySuite` M03/M04 (which are `require_redis` and skip when Redis is down):
+  this suite runs only while Redis is degraded. Opt-in and self-skipping — it
+  asserts only when strict posture is declared and health detail confirms Redis
+  is down. Wired into `full_security` as `TestApiKeyRedisDegraded`.
+  - New config: opt-in `LIVE_TEST_API_KEY` (known-valid plaintext key minted
+    before the outage) and `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT`, exposed on
+    `LiveTestConfig` via `api_key_verify_headers()` and
+    `expect_api_key_fail_closed()`.
+
+- **11.1 Media internal callback ingress exposure suite.** New reusable
+  `MediaInternalExposureSuite` (Category G) proves that media worker callbacks
+  under `/media/v1/internal/*` are blocked at the public edge (proxy-layer 404)
+  with no bearer, a wrong bearer, and — opt-in — a *valid* worker token, so a
+  stolen `MEDIA_INTERNAL_SERVICE_TOKEN` cannot be replayed through the public
+  domain. Wired into `full_security` as `TestMediaInternalExposure`.
+  - New config: `LIVE_TEST_MEDIA_PUBLIC_PREFIX` (default `media`) and opt-in
+    `LIVE_TEST_MEDIA_INTERNAL_TOKEN`, exposed on `LiveTestConfig` via
+    `media_internal_base_url()` and `media_internal_headers()`.
+
 ## 0.3.0 — 2026-06-28
 
 ### Fixed

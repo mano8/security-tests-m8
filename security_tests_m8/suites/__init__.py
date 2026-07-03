@@ -7,7 +7,9 @@ from security_tests_m8.suites.algorithms import (
     HS256WeakKeySuite,
     JWKSSuite,
 )
+from security_tests_m8.suites.api_key import ApiKeyRedisDegradedSuite
 from security_tests_m8.suites.deployment import DeploymentPreflightSuite
+from security_tests_m8.suites.media import MediaInternalExposureSuite
 from security_tests_m8.suites.service import (
     ConfiguredProtectedEndpointsSuite,
     ConfiguredServiceInfoDisclosureSuite,
@@ -37,6 +39,7 @@ from security_tests_m8.suites.universal import (
 )
 
 __all__ = [
+    "ApiKeyRedisDegradedSuite",
     "ApiKeySuite",
     "AsymmetricJWTSuite",
     "AuthAttackSuite",
@@ -53,6 +56,7 @@ __all__ = [
     "InfoDisclosureSuite",
     "JWKSSuite",
     "JWTStructuralSuite",
+    "MediaInternalExposureSuite",
     "MetricsAPISuite",
     "PrivateAPISuite",
     "ProtectedEndpointSuite",

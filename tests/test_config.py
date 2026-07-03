@@ -126,6 +126,10 @@ def test_from_env_parses_all_overrides(
     monkeypatch.setenv("LIVE_TEST_PRIVATE_API_CLIENT_ID", "media-service")
     monkeypatch.setenv("LIVE_TEST_HEALTH_DETAIL_CREDENTIAL", "health-detail")
     monkeypatch.setenv("LIVE_TEST_REFRESH_SECRET_KEY", _OPT_IN_REFRESH_VALUE)
+    monkeypatch.setenv("LIVE_TEST_MEDIA_PUBLIC_PREFIX", "/media/")
+    monkeypatch.setenv("LIVE_TEST_MEDIA_INTERNAL_TOKEN", "worker-token")
+    monkeypatch.setenv("LIVE_TEST_API_KEY", "ak_live_probe")
+    monkeypatch.setenv("LIVE_TEST_API_KEY_STRICT_RATE_LIMIT", "true")
 
     config = LiveTestConfig.from_env()
 
@@ -143,7 +147,68 @@ def test_from_env_parses_all_overrides(
     assert config.private_api_client_id == "media-service"
     assert config.health_detail_credential == "health-detail"
     assert config.refresh_secret_key == _OPT_IN_REFRESH_VALUE
+    assert config.media_public_prefix == "media"
+    assert config.media_internal_token == "worker-token"
+    assert config.api_key == "ak_live_probe"
+    assert config.api_key_strict_rate_limit is True
     assert config.resolve_service_base_url() == "http://catalog"
+
+
+def test_media_public_prefix_defaults_to_media() -> None:
+    config = LiveTestConfig()
+
+    assert config.media_public_prefix == "media"
+    assert config.media_internal_token is None
+
+
+def test_media_internal_base_url_none_without_public_base() -> None:
+    config = LiveTestConfig(public_base_url=None)
+
+    assert config.media_internal_base_url() is None
+
+
+def test_media_internal_base_url_built_from_public_base_and_prefix() -> None:
+    config = LiveTestConfig(
+        public_base_url="https://edge:4430/",
+        media_public_prefix="/media/",
+    ).normalized()
+
+    assert config.public_base_url == "https://edge:4430"
+    assert config.media_public_prefix == "media"
+    assert config.media_internal_base_url() == "https://edge:4430/media/v1/internal"
+
+
+def test_media_internal_headers_empty_without_token() -> None:
+    config = LiveTestConfig()
+
+    assert config.media_internal_headers() == {}
+
+
+def test_media_internal_headers_carry_worker_bearer() -> None:
+    config = LiveTestConfig(media_internal_token="worker-token")
+
+    assert config.media_internal_headers() == {"Authorization": "Bearer worker-token"}
+
+
+def test_api_key_defaults_are_opt_out() -> None:
+    config = LiveTestConfig()
+
+    assert config.api_key is None
+    assert config.api_key_strict_rate_limit is False
+    assert config.api_key_verify_headers() == {}
+    assert config.expect_api_key_fail_closed() is False
+
+
+def test_api_key_verify_headers_carry_key() -> None:
+    config = LiveTestConfig(api_key="ak_live_probe")
+
+    assert config.api_key_verify_headers() == {"X-API-Key": "ak_live_probe"}
+
+
+def test_expect_api_key_fail_closed_reflects_flag() -> None:
+    config = LiveTestConfig(api_key_strict_rate_limit=True)
+
+    assert config.expect_api_key_fail_closed() is True
 
 
 def test_internal_headers_empty_without_secret() -> None:

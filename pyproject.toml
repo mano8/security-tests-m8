@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "security-tests-m8"
-version = "0.3.0"
+version = "0.4.0"
 description = "Reusable live security test suites for FastAPI M8 services."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -120,6 +120,7 @@ markers = [
 
 [tool.coverage.run]
 omit = [
+    "security_tests_m8/_availability.py",
     "security_tests_m8/_client.py",
     "security_tests_m8/_detection.py",
     "security_tests_m8/_preflight.py",

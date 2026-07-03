@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from security_tests_m8 import _availability
 from security_tests_m8._config import configure_from_env, get_config
 from security_tests_m8._detection import StackInfo, detect_stack
 from security_tests_m8._preflight import PreflightError, run_live_preflight
@@ -232,6 +233,26 @@ def pytest_collection_modifyitems(
                 item.add_marker(redis_unknown_skip)
             elif not detected.redis_ok:
                 item.add_marker(redis_skip)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
+    """Arm the availability guard for the call phase of every live test.
+
+    While armed, a request to a configured target that returns a proxy-down
+    signal (502/504, Traefik's bare ``404 page not found``) or drops the
+    connection is turned into a skip rather than being misread by a security
+    assertion. The guard covers the whole live suite from one place, so an
+    unavailable service can never surface as a security finding in the report.
+    """
+    if "live" not in item.keywords:
+        yield
+        return
+    _availability.set_guard_active(True)
+    try:
+        yield
+    finally:
+        _availability.set_guard_active(False)
 
 
 @pytest.fixture(scope="session")
