@@ -1,4 +1,4 @@
-"""CI and publish-workflow policy tests — findings 11.5 and 11.6."""
+"""CI and publish-workflow policy tests — findings 11.5, 11.6, 11.7, and 11.8."""
 
 from pathlib import Path
 
@@ -6,12 +6,18 @@ from pathlib import Path
 from security_tests_m8.workflow_policy import (
     action_refs,
     all_actions_sha_pinned,
+    ci_has_no_duplicate_workflow,
+    ci_has_secret_scan_job,
+    constraints_file_exists,
+    constraints_file_has_no_custom_index,
+    constraints_file_pins_deps,
     docker_publish_has_cosign_step,
     docker_publish_has_provenance,
     docker_publish_has_sbom_step,
     docker_publish_job_has_attestation_permission,
     docker_publish_job_has_oidc_permission,
     load_workflow,
+    lock_file_uses_require_hashes,
     pypi_publish_job_has_oidc_permission,
     pypi_publish_job_has_protected_environment,
     pypi_workflow_has_no_api_token,
@@ -21,6 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CI_YAML = WORKFLOWS / "CI.yaml"
 PIPY_YML = WORKFLOWS / "PiPy.yml"
+CONSTRAINTS_ALL = REPO_ROOT / "constraints-all.txt"
+
+_KEY_RUNTIME_DEPS = ["cryptography", "pyjwt", "pytest", "pyyaml", "requests"]
 
 _GOOD_SHA = "a" * 40
 
@@ -46,13 +55,31 @@ def test_pypi_publish_job_uses_protected_environment() -> None:
 
 def test_no_duplicate_ci_yml() -> None:
     """ci.yml must not exist — CI.yaml is the single canonical quality gate."""
-    assert not (WORKFLOWS / "ci.yml").exists()
+    assert ci_has_no_duplicate_workflow(WORKFLOWS)
 
 
 def test_ci_yaml_has_secret_scan_job() -> None:
     """CI.yaml must contain the gitleaks secret-scan job."""
     wf = load_workflow(CI_YAML)
-    assert "secret-scan" in wf["jobs"]
+    assert ci_has_secret_scan_job(wf)
+
+
+# ── Own repo compliance — finding 11.8 (reproducible dependency sets) ────────
+
+
+def test_constraints_all_exists() -> None:
+    """constraints-all.txt must exist as a pinned resolver snapshot."""
+    assert constraints_file_exists(CONSTRAINTS_ALL)
+
+
+def test_constraints_all_pins_key_runtime_deps() -> None:
+    """constraints-all.txt must pin all declared runtime dependencies."""
+    assert constraints_file_pins_deps(CONSTRAINTS_ALL, _KEY_RUNTIME_DEPS)
+
+
+def test_constraints_no_custom_index_url() -> None:
+    """constraints-all.txt must not reference a custom index URL (public PyPI only)."""
+    assert constraints_file_has_no_custom_index(CONSTRAINTS_ALL)
 
 
 def test_ci_yaml_actions_are_sha_pinned() -> None:
@@ -310,3 +337,100 @@ def test_pypi_protected_environment_dict_no_name_key() -> None:
 
 def test_pypi_protected_environment_no_jobs() -> None:
     assert not pypi_publish_job_has_protected_environment({})
+
+
+# ── Reusable CI workflow consolidation checks — finding 11.7 ────────────────
+
+
+def test_ci_no_duplicate_workflow_passes(tmp_path: Path) -> None:
+    wf_dir = tmp_path / "workflows"
+    wf_dir.mkdir()
+    (wf_dir / "CI.yaml").write_text("name: CI", encoding="utf-8")
+    assert ci_has_no_duplicate_workflow(wf_dir)
+
+
+def test_ci_no_duplicate_workflow_fails_when_ci_yml_exists(tmp_path: Path) -> None:
+    wf_dir = tmp_path / "workflows"
+    wf_dir.mkdir()
+    (wf_dir / "CI.yaml").write_text("name: CI", encoding="utf-8")
+    (wf_dir / "ci.yml").write_text("name: ci", encoding="utf-8")
+    assert not ci_has_no_duplicate_workflow(wf_dir)
+
+
+def test_ci_has_secret_scan_job_present() -> None:
+    wf = {"jobs": {"secret-scan": {}, "test": {}}}
+    assert ci_has_secret_scan_job(wf)
+
+
+def test_ci_has_secret_scan_job_missing() -> None:
+    wf = {"jobs": {"test": {}, "lint": {}}}
+    assert not ci_has_secret_scan_job(wf)
+
+
+def test_ci_has_secret_scan_job_no_jobs() -> None:
+    assert not ci_has_secret_scan_job({})
+
+
+# ── Reusable reproducible dependency set checks — finding 11.8 ───────────────
+
+
+def test_constraints_file_exists_true(tmp_path: Path) -> None:
+    f = tmp_path / "constraints-all.txt"
+    f.write_text("cryptography==49.0.0\n", encoding="utf-8")
+    assert constraints_file_exists(f)
+
+
+def test_constraints_file_exists_false(tmp_path: Path) -> None:
+    assert not constraints_file_exists(tmp_path / "missing.txt")
+
+
+def test_constraints_file_has_no_custom_index_passes(tmp_path: Path) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("cryptography==49.0.0\npyjwt==2.10.1\n", encoding="utf-8")
+    assert constraints_file_has_no_custom_index(f)
+
+
+def test_constraints_file_has_no_custom_index_fails_index_url(tmp_path: Path) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("--index-url https://private.example.com/simple\n", encoding="utf-8")
+    assert not constraints_file_has_no_custom_index(f)
+
+
+def test_constraints_file_has_no_custom_index_fails_extra_index_url(
+    tmp_path: Path,
+) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("--extra-index-url https://private.example.com\n", encoding="utf-8")
+    assert not constraints_file_has_no_custom_index(f)
+
+
+def test_constraints_file_pins_deps_all_present(tmp_path: Path) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("cryptography==49.0.0\npyjwt==2.10.1\n", encoding="utf-8")
+    assert constraints_file_pins_deps(f, ["cryptography", "pyjwt"])
+
+
+def test_constraints_file_pins_deps_one_missing(tmp_path: Path) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("cryptography==49.0.0\n", encoding="utf-8")
+    assert not constraints_file_pins_deps(f, ["cryptography", "pyjwt"])
+
+
+def test_constraints_file_pins_deps_case_insensitive(tmp_path: Path) -> None:
+    f = tmp_path / "c.txt"
+    f.write_text("PyJWT==2.10.1\n", encoding="utf-8")
+    assert constraints_file_pins_deps(f, ["pyjwt"])
+
+
+def test_lock_file_uses_require_hashes_present(tmp_path: Path) -> None:
+    f = tmp_path / "requirements.lock"
+    f.write_text(
+        "cryptography==49.0.0 \\\n    --hash=sha256:abc123\n", encoding="utf-8"
+    )
+    assert lock_file_uses_require_hashes(f)
+
+
+def test_lock_file_uses_require_hashes_absent(tmp_path: Path) -> None:
+    f = tmp_path / "requirements.lock"
+    f.write_text("cryptography==49.0.0\n", encoding="utf-8")
+    assert not lock_file_uses_require_hashes(f)

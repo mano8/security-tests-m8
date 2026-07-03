@@ -1,4 +1,4 @@
-"""Reusable GitHub Actions workflow policy checks — findings 11.5 and 11.6."""
+"""Reusable GitHub Actions workflow policy checks — findings 11.5, 11.6, 11.7, 11.8."""
 
 from __future__ import annotations
 
@@ -127,3 +127,45 @@ def pypi_publish_job_has_protected_environment(
         return False
     name = env.get("name") if isinstance(env, dict) else env
     return bool(name)
+
+
+# ---------------------------------------------------------------------------
+# 11.7  CI workflow consolidation and immutable action policy
+# ---------------------------------------------------------------------------
+
+
+def ci_has_no_duplicate_workflow(workflows_dir: Path) -> bool:
+    """Return True when ``ci.yml`` does not coexist with ``CI.yaml``."""
+    return not (workflows_dir / "ci.yml").exists()
+
+
+def ci_has_secret_scan_job(wf: dict[str, Any]) -> bool:
+    """Return True when the CI workflow contains a ``secret-scan`` job."""
+    return "secret-scan" in wf.get("jobs", {})
+
+
+# ---------------------------------------------------------------------------
+# 11.8  Reproducible dependency sets
+# ---------------------------------------------------------------------------
+
+
+def constraints_file_exists(path: Path) -> bool:
+    """Return True when a constraints/lock file exists at *path*."""
+    return path.exists()
+
+
+def constraints_file_has_no_custom_index(path: Path) -> bool:
+    """Return True when the file does not reference a custom index URL."""
+    content = path.read_text(encoding="utf-8")
+    return "--index-url" not in content and "--extra-index-url" not in content
+
+
+def constraints_file_pins_deps(path: Path, dep_names: list[str]) -> bool:
+    """Return True when every name in *dep_names* appears in the constraints file."""
+    content = path.read_text(encoding="utf-8").lower()
+    return all(dep.lower() in content for dep in dep_names)
+
+
+def lock_file_uses_require_hashes(path: Path) -> bool:
+    """Return True when the lock file contains ``--hash=`` entries."""
+    return "--hash=" in path.read_text(encoding="utf-8")
