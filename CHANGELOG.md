@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 — 2026-07-23
+
+### Changed
+
+- **Phase 4 harness realignment: forged privilege tokens use canonical claim
+  pairs.** The test harness now mints forged tokens with the canonical
+  invariant: `role` and `is_superuser` must form consistent pairs. All
+  escalation and algorithm-forge helpers (`access_payload()`, `forge_alg_none`,
+  `forge_hs256_with_pubkey`, `forge_rs256`, `forge_es256`, and
+  `committed_key_forge`) now enforce that `role="superadmin"` whenever
+  `is_superuser=true`. This aligns the harness with the SDK canonical
+  authorization model (auth-sdk-m8 3.0.0+) and proves the real stack rejects
+  inconsistent privilege claims under the canonical invariant enforcement.
+
 ## 0.4.0 — 2026-07-03
 
 ### Fixed
