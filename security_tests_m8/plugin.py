@@ -405,7 +405,11 @@ def committed_key_forge(
         return forge_asymmetric(
             key_pem,
             live_alg,
-            is_superuser=bool(kwargs.get("is_superuser", True)),
+            is_superuser=_optional_bool(kwargs.get("is_superuser")),
+            role=_optional_str(kwargs.get("role")),
+            allow_inconsistent_claims=bool(
+                kwargs.get("allow_inconsistent_claims", False)
+            ),
             token_type=str(kwargs.get("token_type", "access")),
             kid=str(kwargs.get("kid", live_kid)),
             iss=_optional_str(kwargs.get("iss")),
@@ -419,6 +423,13 @@ def _optional_str(value: object) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _optional_bool(value: object) -> bool | None:
+    """Keep `None` distinguishable so the canonical claim pair can be derived."""
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _live_token_issuer_audience() -> tuple[str | None, str | None]:

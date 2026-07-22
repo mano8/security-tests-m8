@@ -42,6 +42,7 @@ from security_tests_m8._config import get_config
 from security_tests_m8.forge import (
     access_payload,
     b64url_nopad,
+    escalate_claims,
     forge_alg_none,
     forge_asymmetric,
     forge_hs256_with_pubkey,
@@ -190,7 +191,7 @@ class AsymmetricJWTSuite:
         import base64
 
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)
@@ -459,7 +460,7 @@ class HS256Suite:
         parts = admin_token.split(".")
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)
@@ -480,7 +481,7 @@ class HS256Suite:
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
         claims["is_active"] = False
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)

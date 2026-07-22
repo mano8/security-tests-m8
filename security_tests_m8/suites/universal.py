@@ -38,7 +38,7 @@ from security_tests_m8._client import (
     health_detail_headers,
 )
 from security_tests_m8._config import get_config
-from security_tests_m8.forge import forge_alg_none
+from security_tests_m8.forge import escalate_claims, forge_alg_none
 
 pytestmark = [pytest.mark.live, pytest.mark.live_security]
 
@@ -202,7 +202,7 @@ class JWTStructuralSuite:
         parts = admin_token.split(".")
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         from security_tests_m8.forge import b64url_nopad
 
         new_payload = b64url_nopad(json.dumps(claims).encode())
