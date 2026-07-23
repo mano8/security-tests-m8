@@ -157,6 +157,10 @@ When `fail_fast_preflight=True`, the plugin checks auth health, configured servi
 
 During collection, the plugin probes the configured auth stack and auto-skips tests that do not match the current deployment. For example, RS256-only tests are skipped on an HS256 stack, and stateful Redis checks are skipped if Redis is not available.
 
+### Canonical fixture matrix (§5.5, FIXTURE-01)
+
+`auth-sdk-m8` is the single canonical owner of the shared role/flag/decision/event/introspection fixture matrix used across the M8 auth stack. This harness stays SDK-free by design — it never imports or installs `auth-sdk-m8` at runtime, so its coupling to the SDK is limited to the canonical role strings `security_tests_m8.forge` mints. Instead of consuming the matrix as installed package data, it **vendors** an identical, checked-in copy at `security_tests_m8/testing/authorization_matrix.json`, verified the same way on load via `security_tests_m8.testing.load_authorization_fixture_matrix()`: schema version and checksum are checked, and a hand-edited or stale copy fails closed rather than being silently trusted. `tests/test_fixture_matrix.py` asserts the vendored copy verifies and that `forge.py`'s canonical two-role claim pairing agrees with the fixture's role/flag truth table — re-copy the file (never hand-edit it) whenever `auth-sdk-m8` regenerates its matrix.
+
 ## Configuration
 
 You can configure with Python:

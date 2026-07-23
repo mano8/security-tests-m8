@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Vendor the SDK canonical fixture matrix (Phase 5, FIXTURE-01, §5.5).**
+  `security_tests_m8/testing/authorization_matrix.json` is a checked-in,
+  byte-identical copy of `auth-sdk-m8`'s checksummed fixture matrix (schema
+  version `"2"`), with a new `security_tests_m8.testing` loader
+  (`load_authorization_fixture_matrix()`) that verifies the same
+  schema-version/checksum guards on load — the harness stays SDK-free (no
+  `auth-sdk-m8` import or install at runtime) while still failing closed on
+  drift or a hand-edited copy. `tests/test_fixture_matrix.py` proves the
+  guards are load-bearing and that `forge.py`'s canonical two-role claim
+  pairing agrees with the fixture's role/flag truth table. Added
+  `.gitleaks.toml` allowlisting the vendored path for its inline test-only
+  signing key and JWTs (mirrors `auth-sdk-m8`'s own allowlist).
+
 ## 0.5.0 — 2026-07-23
 
 ### Changed
