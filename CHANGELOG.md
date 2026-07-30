@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-07-23
 
 ### Added
 
@@ -16,8 +16,6 @@
   pairing agrees with the fixture's role/flag truth table. Added
   `.gitleaks.toml` allowlisting the vendored path for its inline test-only
   signing key and JWTs (mirrors `auth-sdk-m8`'s own allowlist).
-
-## 0.5.0 — 2026-07-23
 
 ### Changed
 
