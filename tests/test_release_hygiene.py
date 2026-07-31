@@ -282,7 +282,9 @@ def test_permission_denied_dir_produces_warning_on_real_filesystem(
     try:
         report = scan_release_surface(tmp_path)
     finally:
-        os.chmod(blocked, 0o755)
+        # Restores access to a dir this test created under tmp_path so
+        # pytest's own teardown can remove it; not a real permission grant.
+        os.chmod(blocked, 0o755)  # nosec B103
 
     codes = {f.code for f in report.warnings}
     assert "permission-denied" in codes
