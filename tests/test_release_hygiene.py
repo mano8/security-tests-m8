@@ -1,4 +1,7 @@
+import errno
 import os
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -236,14 +239,52 @@ def test_node_modules_skipped(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_permission_denied_dir_produces_warning(tmp_path: Path) -> None:
+def test_permission_denied_dir_produces_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreadable directory is warned about, not silently skipped.
+
+    The denial is emulated rather than driven by ``os.chmod`` so that the
+    scanner's ``except PermissionError`` branch is measured on every platform:
+    ``os.chmod(dir, 0o000)`` does not deny directory reads on Windows, which
+    left those lines uncovered and the suite below its own 100% gate. The
+    companion test below still proves the real filesystem behaviour wherever
+    the OS enforces it.
+    """
+    blocked = tmp_path / "restricted"
+    blocked.mkdir()
+    real_iterdir = Path.iterdir
+
+    def deny_blocked(self: Path) -> Iterator[Path]:
+        if self == blocked:
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", deny_blocked)
+
+    report = scan_release_surface(tmp_path)
+
+    codes = {f.code for f in report.warnings}
+    assert "permission-denied" in codes
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os.chmod(dir, 0o000) does not deny directory reads on Windows",
+)
+def test_permission_denied_dir_produces_warning_on_real_filesystem(
+    tmp_path: Path,
+) -> None:
+    """The same warning, driven by a real unreadable directory."""
     blocked = tmp_path / "restricted"
     blocked.mkdir()
     os.chmod(blocked, 0o000)
     try:
         report = scan_release_surface(tmp_path)
     finally:
-        os.chmod(blocked, 0o755)
+        # Restores access to a dir this test created under tmp_path so
+        # pytest's own teardown can remove it; not a real permission grant.
+        os.chmod(blocked, 0o755)  # nosec B103
 
     codes = {f.code for f in report.warnings}
     assert "permission-denied" in codes
@@ -306,7 +347,11 @@ def test_format_produces_root_relative_path(tmp_path: Path) -> None:
 
     result = finding.format(tmp_path)
 
-    assert result == "ERROR runtime-env-file stack/auth.env - blocked"
+    # Compare against a Path-normalised separator rather than a literal "/":
+    # the finding renders the platform's own separator, so a hardcoded POSIX
+    # slash fails on Windows without saying anything about the formatter.
+    expected = Path("stack") / "auth.env"
+    assert result == f"ERROR runtime-env-file {expected} - blocked"
 
 
 def test_format_handles_path_outside_root(tmp_path: Path) -> None:

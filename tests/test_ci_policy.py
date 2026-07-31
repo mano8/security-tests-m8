@@ -1,6 +1,7 @@
 """CI and publish-workflow policy tests — findings 11.5, 11.6, 11.7, and 11.8."""
 
 from pathlib import Path
+from typing import Any
 
 from security_tests_m8.workflow_policy import (
     action_refs,
@@ -182,7 +183,7 @@ def test_docker_job_oidc_permission_present() -> None:
 
 
 def test_docker_job_oidc_permission_missing() -> None:
-    wf = {"jobs": {"build-and-push": {"permissions": {}, "steps": []}}}
+    wf: dict[str, Any] = {"jobs": {"build-and-push": {"permissions": {}, "steps": []}}}
     assert not docker_publish_job_has_oidc_permission(wf)
 
 
@@ -197,7 +198,7 @@ def test_docker_job_attestation_permission_present() -> None:
 
 
 def test_docker_job_attestation_permission_missing() -> None:
-    wf = {"jobs": {"build-and-push": {"permissions": {}, "steps": []}}}
+    wf: dict[str, Any] = {"jobs": {"build-and-push": {"permissions": {}, "steps": []}}}
     assert not docker_publish_job_has_attestation_permission(wf)
 
 
@@ -292,7 +293,7 @@ def test_pypi_job_oidc_permission_present() -> None:
 
 
 def test_pypi_job_oidc_permission_missing() -> None:
-    wf = {"jobs": {"pypi-publish": {"permissions": {}}}}
+    wf: dict[str, Any] = {"jobs": {"pypi-publish": {"permissions": {}}}}
     assert not pypi_publish_job_has_oidc_permission(wf)
 
 
@@ -315,7 +316,7 @@ def test_pypi_protected_environment_dict_with_name() -> None:
 
 
 def test_pypi_protected_environment_missing() -> None:
-    wf = {"jobs": {"pypi-publish": {}}}
+    wf: dict[str, Any] = {"jobs": {"pypi-publish": {}}}
     assert not pypi_publish_job_has_protected_environment(wf)
 
 
@@ -357,12 +358,12 @@ def test_ci_no_duplicate_workflow_fails_when_ci_yml_exists(tmp_path: Path) -> No
 
 
 def test_ci_has_secret_scan_job_present() -> None:
-    wf = {"jobs": {"secret-scan": {}, "test": {}}}
+    wf: dict[str, Any] = {"jobs": {"secret-scan": {}, "test": {}}}
     assert ci_has_secret_scan_job(wf)
 
 
 def test_ci_has_secret_scan_job_missing() -> None:
-    wf = {"jobs": {"test": {}, "lint": {}}}
+    wf: dict[str, Any] = {"jobs": {"test": {}, "lint": {}}}
     assert not ci_has_secret_scan_job(wf)
 
 
