@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.0 — 2026-07-23
+
+### Added
+
+- **Vendor the SDK canonical fixture matrix (Phase 5, FIXTURE-01, §5.5).**
+  `security_tests_m8/testing/authorization_matrix.json` is a checked-in,
+  byte-identical copy of `auth-sdk-m8`'s checksummed fixture matrix (schema
+  version `"2"`), with a new `security_tests_m8.testing` loader
+  (`load_authorization_fixture_matrix()`) that verifies the same
+  schema-version/checksum guards on load — the harness stays SDK-free (no
+  `auth-sdk-m8` import or install at runtime) while still failing closed on
+  drift or a hand-edited copy. `tests/test_fixture_matrix.py` proves the
+  guards are load-bearing and that `forge.py`'s canonical two-role claim
+  pairing agrees with the fixture's role/flag truth table. Added
+  `.gitleaks.toml` allowlisting the vendored path for its inline test-only
+  signing key and JWTs (mirrors `auth-sdk-m8`'s own allowlist).
+
+### Changed
+
+- **Phase 4 harness realignment: forged privilege tokens use canonical claim
+  pairs.** The test harness now mints forged tokens with the canonical
+  invariant: `role` and `is_superuser` must form consistent pairs. All
+  escalation and algorithm-forge helpers (`access_payload()`, `forge_alg_none`,
+  `forge_hs256_with_pubkey`, `forge_rs256`, `forge_es256`, and
+  `committed_key_forge`) now enforce that `role="superadmin"` whenever
+  `is_superuser=true`. This aligns the harness with the SDK canonical
+  authorization model (auth-sdk-m8 3.0.0+) and proves the real stack rejects
+  inconsistent privilege claims under the canonical invariant enforcement.
+- **Drop Python 3.11 support; require 3.12+.** `requires-python` is now
+  `">=3.12"` and the CI test matrix covers 3.12/3.13/3.14. Consolidated the
+  stray `ruff.toml` into `pyproject.toml`'s `[tool.ruff]` table — its presence
+  had been silently discarding the project's curated `select`/`ignore` lint
+  rules in favor of ruff's version-dependent defaults, and derived
+  `target-version` from `requires-python` instead of the value declared in
+  `pyproject.toml`. With the fixed config on ruff 0.16, `target-version` is
+  pinned to `py312` so the formatter never emits PEP 758's unparenthesized
+  `except A, B:` syntax, which only parses on 3.14+.
+
 ## 0.4.0 — 2026-07-03
 
 ### Fixed

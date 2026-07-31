@@ -38,7 +38,7 @@ from security_tests_m8._client import (
     health_detail_headers,
 )
 from security_tests_m8._config import get_config
-from security_tests_m8.forge import forge_alg_none
+from security_tests_m8.forge import escalate_claims, forge_alg_none
 
 pytestmark = [pytest.mark.live, pytest.mark.live_security]
 
@@ -175,6 +175,7 @@ class JWTStructuralSuite:
     """Category B — Token format and alg=none rejection; no key material needed."""
 
     _ME = f"{AUTH_BASE}/profile/get/me/"
+    _PROBE = f"{AUTH_BASE}/security/superuser-probe"
 
     def test_b01_no_token_rejected(self):
         r = requests.get(self._ME, timeout=TIMEOUT)
@@ -195,6 +196,22 @@ class JWTStructuralSuite:
             "[CRITICAL FAIL-B04] alg=none token ACCEPTED — full authentication bypass!"
         )
 
+    def test_b04b_alg_none_forged_superuser_rejected_by_probe(self):
+        """CRITICAL GUARD (3.9): a canonical forged superuser token must never
+        reach the non-destructive, non-disclosing superuser-probe canary.
+
+        `forge_alg_none()` defaults to canonical superadmin claims
+        (`is_superuser=True`, `role="superadmin"`), so the only possible
+        rejection cause here is the forged signature — a regression makes this
+        token accepted, and the probe (no PII, no mutation) is the safe place
+        to detect that.
+        """
+        r = requests.get(self._PROBE, headers=_auth(forge_alg_none()), timeout=TIMEOUT)
+        assert r.status_code == 403, (
+            "[CRITICAL FAIL-B04b] alg=none canonical-superuser token ACCEPTED by "
+            "the superuser probe — signature verification bypass!"
+        )
+
     def test_b05_tampered_payload_rejected(self, admin_token: str):
         """Modify payload without re-signing — signature mismatch must be caught."""
         import base64
@@ -202,7 +219,7 @@ class JWTStructuralSuite:
         parts = admin_token.split(".")
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         from security_tests_m8.forge import b64url_nopad
 
         new_payload = b64url_nopad(json.dumps(claims).encode())

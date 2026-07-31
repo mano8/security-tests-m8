@@ -216,7 +216,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Claude Code local project instructions (never committed)
-CLAUDE.md
-Agents.md

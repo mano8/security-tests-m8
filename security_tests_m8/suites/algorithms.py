@@ -42,6 +42,7 @@ from security_tests_m8._config import get_config
 from security_tests_m8.forge import (
     access_payload,
     b64url_nopad,
+    escalate_claims,
     forge_alg_none,
     forge_asymmetric,
     forge_hs256_with_pubkey,
@@ -54,6 +55,7 @@ pytestmark = [
 ]
 
 _ME = f"{AUTH_BASE}/profile/get/me/"
+_PROBE = f"{AUTH_BASE}/security/superuser-probe"
 _PrivateKey: TypeAlias = RSAPrivateKey | EllipticCurvePrivateKey
 
 
@@ -88,6 +90,18 @@ class AsymmetricJWTSuite:
             "[CRITICAL FAIL-B02] Asymmetric-to-HS256 confusion succeeded"
         )
 
+    def test_b02b_algorithm_confusion_hs256_pubkey_rejected_by_probe(
+        self, public_key_pem: str
+    ):
+        """CRITICAL GUARD (3.9): algorithm-confusion forgery of a canonical
+        superuser token must never reach the non-disclosing probe canary."""
+        token = forge_hs256_with_pubkey(public_key_pem)
+        r = requests.get(_PROBE, headers=_auth(token), timeout=TIMEOUT)
+        assert r.status_code == 403, (
+            "[CRITICAL FAIL-B02b] Asymmetric-to-HS256 confusion reached the "
+            "superuser probe"
+        )
+
     def test_b03_forged_token_with_committed_key_rejected(self, committed_key_forge):
         """
         A forged token made with a repo-visible private key must be rejected.
@@ -115,6 +129,21 @@ class AsymmetricJWTSuite:
         assert r.status_code != 200, (
             "[CRITICAL FAIL-B04] Forged JWT from a repo-visible key reached "
             "the auth admin endpoint."
+        )
+
+    def test_b04b_forged_token_with_committed_key_rejected_by_probe(
+        self, committed_key_forge
+    ):
+        """CRITICAL GUARD (3.9): prove a repo-key forgery is rejected against the
+        non-destructive, non-disclosing superuser probe — not only against a
+        PII-returning route. A signature-verification regression here would be
+        caught without ever disclosing user data or mutating state.
+        """
+        token = committed_key_forge(is_superuser=True)
+        r = requests.get(_PROBE, headers=_auth(token), timeout=TIMEOUT)
+        assert r.status_code != 200, (
+            "[CRITICAL FAIL-B04b] Forged JWT from a repo-visible key was "
+            "ACCEPTED by the superuser probe."
         )
 
     def test_b05_expired_token_rejected(
@@ -190,7 +219,7 @@ class AsymmetricJWTSuite:
         import base64
 
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)
@@ -421,6 +450,16 @@ class HS256Suite:
             "[CRITICAL FAIL-H01] Token signed with wrong HS256 secret was ACCEPTED"
         )
 
+    def test_h01b_wrong_secret_forged_superuser_rejected_by_probe(self):
+        """CRITICAL GUARD (3.9): a canonical superuser token signed with the
+        wrong HS256 secret must never reach the non-disclosing probe canary."""
+        token = _forge_hs256_wrong_secret()
+        r = requests.get(_PROBE, headers=_auth(token), timeout=TIMEOUT)
+        assert r.status_code == 403, (
+            "[CRITICAL FAIL-H01b] Wrong-secret HS256 canonical-superuser token "
+            "reached the superuser probe"
+        )
+
     def test_h02_alg_none_rejected(self):
         """CRITICAL GUARD: unsigned token must never be accepted."""
         r = requests.get(_ME, headers=_auth(forge_alg_none()), timeout=TIMEOUT)
@@ -459,7 +498,7 @@ class HS256Suite:
         parts = admin_token.split(".")
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)
@@ -480,7 +519,7 @@ class HS256Suite:
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
         claims["is_active"] = False
-        claims["is_superuser"] = True
+        escalate_claims(claims)
         new_payload = b64url_nopad(json.dumps(claims).encode())
         tampered = f"{parts[0]}.{new_payload}.{parts[2]}"
         r = requests.get(_ME, headers=_auth(tampered), timeout=TIMEOUT)
