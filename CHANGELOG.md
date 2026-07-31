@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The 100% coverage gate is verifiable off Linux.** Two
+  `tests/test_release_hygiene.py` tests were POSIX-only and failed on a Windows
+  host, which also left `release_hygiene.py`'s `except PermissionError` branch
+  unmeasured and the suite at 99.67% — so the repository's own coverage gate
+  held on no platform the branch had actually been run on.
+  `test_permission_denied_dir_produces_warning` now emulates the denial by
+  monkeypatching `Path.iterdir`, because `os.chmod(dir, 0o000)` does not deny
+  directory reads on Windows; the branch is therefore measured everywhere. The
+  real-filesystem variant is kept as
+  `test_permission_denied_dir_produces_warning_on_real_filesystem`, skipped on
+  `win32` only, so the OS-enforced behaviour is still proven where it applies.
+  `test_format_produces_root_relative_path` compares against a
+  `Path`-normalised separator instead of a literal `/`. Tests only — no runtime
+  behaviour changed.
+
 ## 0.5.0 — 2026-07-23
 
 ### Added
