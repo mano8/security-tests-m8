@@ -52,7 +52,7 @@ The tests run against a real live stack. They do not mock your auth service. You
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.12 or newer
 - `pytest`
 - a running FastAPI M8 auth stack
 - a dedicated test-only superuser that can log in through `/login/access-token`

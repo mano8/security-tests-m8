@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 from security_tests_m8.workflow_policy import (
     action_refs,
     all_actions_sha_pinned,

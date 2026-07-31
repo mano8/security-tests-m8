@@ -39,9 +39,9 @@ class UnsupportedFixtureMatrixSchemaVersionError(ValueError):
 
 
 class FixtureChecksumMismatchError(ValueError):
-    """Raised when the vendored fixture matrix content does not match its
-    checksum (hand-edited or a partial/stale copy from the SDK).
+    """Raised when the vendored fixture matrix content does not match its checksum.
 
+    This means a hand-edited or a partial/stale copy from the SDK.
     Carries only a bounded reason code — never the payload.
     """
 

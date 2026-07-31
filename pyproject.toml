@@ -9,15 +9,15 @@ description = "Reusable live security test suites for FastAPI M8 services."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Eli Serra", email = "e.serra173@gmail.com" }]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = ["fastapi", "security", "pytest", "jwt", "live-tests"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Framework :: Pytest",
     "Topic :: Security",
     "Topic :: Software Development :: Testing",
@@ -36,7 +36,7 @@ dev = [
     "mypy>=2.1.0",
     "coverage>=7.14.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.15",
+    "ruff==0.16.0",
     "pip-audit>=2.7.3",
 ]
 
@@ -58,7 +58,12 @@ packages = ["security_tests_m8"]
 # ─── Ruff ────────────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 88
-target-version = "py314"
+target-version = "py312"
+exclude = [
+    ".git",
+    "__pycache__",
+    "examples/",   # infrastructure templates
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "C90", "D"]
@@ -86,7 +91,7 @@ convention = "google"
 known-first-party = ["security_tests_m8"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 strict = false
 

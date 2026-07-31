@@ -28,6 +28,15 @@
   `is_superuser=true`. This aligns the harness with the SDK canonical
   authorization model (auth-sdk-m8 3.0.0+) and proves the real stack rejects
   inconsistent privilege claims under the canonical invariant enforcement.
+- **Drop Python 3.11 support; require 3.12+.** `requires-python` is now
+  `">=3.12"` and the CI test matrix covers 3.12/3.13/3.14. Consolidated the
+  stray `ruff.toml` into `pyproject.toml`'s `[tool.ruff]` table — its presence
+  had been silently discarding the project's curated `select`/`ignore` lint
+  rules in favor of ruff's version-dependent defaults, and derived
+  `target-version` from `requires-python` instead of the value declared in
+  `pyproject.toml`. With the fixed config on ruff 0.16, `target-version` is
+  pinned to `py312` so the formatter never emits PEP 758's unparenthesized
+  `except A, B:` syntax, which only parses on 3.14+.
 
 ## 0.4.0 — 2026-07-03
 

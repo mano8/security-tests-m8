@@ -167,6 +167,64 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         pytest.exit(f"Live security preflight failed: {exc}", returncode=2)
 
 
+def _skip_if_algorithm_unmet(item: pytest.Item, detected: StackInfo) -> bool:
+    alg_marker = item.get_closest_marker("require_algorithm")
+    if alg_marker and detected.algorithm not in alg_marker.args:
+        item.add_marker(
+            pytest.mark.skip(
+                reason=(
+                    f"Stack runs {detected.algorithm!r}; "
+                    f"test requires one of {alg_marker.args}"
+                )
+            )
+        )
+        return True
+    return False
+
+
+def _skip_if_token_mode_unmet(
+    item: pytest.Item,
+    detected: StackInfo,
+    token_mode_unknown_skip: pytest.MarkDecorator,
+) -> bool:
+    mode_marker = item.get_closest_marker("require_token_mode")
+    if not mode_marker:
+        return False
+    if not detected.token_mode_known:
+        item.add_marker(token_mode_unknown_skip)
+        return True
+    if detected.token_mode not in mode_marker.args:
+        item.add_marker(
+            pytest.mark.skip(
+                reason=(
+                    f"Stack token_mode is {detected.token_mode!r}; "
+                    f"test requires one of {mode_marker.args}"
+                )
+            )
+        )
+        return True
+    return False
+
+
+def _skip_if_redis_unmet(
+    item: pytest.Item,
+    detected: StackInfo,
+    redis_skip: pytest.MarkDecorator,
+    redis_unknown_skip: pytest.MarkDecorator,
+) -> None:
+    needs_redis = (
+        item.get_closest_marker("require_redis")
+        or "live_stateful" in item.keywords
+        or "live_hybrid" in item.keywords
+    )
+    if not needs_redis:
+        return
+    if not detected.detail_available:
+        item.add_marker(redis_unknown_skip)
+    elif not detected.redis_ok:
+        item.add_marker(redis_skip)
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
@@ -197,42 +255,11 @@ def pytest_collection_modifyitems(
         )
     )
     for item in items:
-        alg_marker = item.get_closest_marker("require_algorithm")
-        if alg_marker and detected.algorithm not in alg_marker.args:
-            item.add_marker(
-                pytest.mark.skip(
-                    reason=(
-                        f"Stack runs {detected.algorithm!r}; "
-                        f"test requires one of {alg_marker.args}"
-                    )
-                )
-            )
+        if _skip_if_algorithm_unmet(item, detected):
             continue
-        mode_marker = item.get_closest_marker("require_token_mode")
-        if mode_marker:
-            if not detected.token_mode_known:
-                item.add_marker(token_mode_unknown_skip)
-                continue
-            if detected.token_mode not in mode_marker.args:
-                item.add_marker(
-                    pytest.mark.skip(
-                        reason=(
-                            f"Stack token_mode is {detected.token_mode!r}; "
-                            f"test requires one of {mode_marker.args}"
-                        )
-                    )
-                )
-                continue
-        needs_redis = (
-            item.get_closest_marker("require_redis")
-            or "live_stateful" in item.keywords
-            or "live_hybrid" in item.keywords
-        )
-        if needs_redis:
-            if not detected.detail_available:
-                item.add_marker(redis_unknown_skip)
-            elif not detected.redis_ok:
-                item.add_marker(redis_skip)
+        if _skip_if_token_mode_unmet(item, detected, token_mode_unknown_skip):
+            continue
+        _skip_if_redis_unmet(item, detected, redis_skip, redis_unknown_skip)
 
 
 @pytest.hookimpl(hookwrapper=True)

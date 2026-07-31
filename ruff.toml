@@ -1,7 +1,0 @@
-line-length = 88
-
-exclude = [
-    ".git",
-    "__pycache__",
-    "examples/",   # infrastructure templates
-]
