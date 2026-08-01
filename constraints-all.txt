@@ -102,7 +102,7 @@ rich==15.0.0
     # via
     #   bandit
     #   pip-audit
-ruff==0.15.20
+ruff==0.16.0
     # via security-tests-m8 (pyproject.toml)
 sortedcontainers==2.4.0
     # via cyclonedx-python-lib
