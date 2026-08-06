@@ -429,3 +429,113 @@ def test_configure_from_env_loads_dotenv_from_current_directory(
     config = configure_from_env()
 
     assert config.admin_email == "cwd@example.com"
+
+
+def test_from_env_parses_cross_service_endpoint_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "LIVE_TEST_CROSS_SERVICE_ENDPOINTS",
+        '{"reparto": "/schools/", "media": "/category/"}',
+    )
+
+    config = LiveTestConfig.from_env()
+
+    assert config.cross_service_endpoints == {
+        "reparto": "/schools/",
+        "media": "/category/",
+    }
+
+
+def test_env_cross_service_endpoints_requires_json_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LIVE_TEST_CROSS_SERVICE_ENDPOINTS", '["not", "object"]')
+
+    with pytest.raises(ValueError, match="JSON object"):
+        LiveTestConfig.from_env()
+
+
+def test_service_names_lists_default_service_first() -> None:
+    config = LiveTestConfig(
+        service_base_urls={
+            "media": "http://svc/media",
+            "reparto": "http://svc/reparto",
+        },
+        default_service="reparto",
+    ).normalized()
+
+    assert config.service_names() == ["reparto", "media"]
+
+
+def test_service_names_without_default_keeps_declaration_order() -> None:
+    config = LiveTestConfig(
+        service_base_urls={
+            "media": "http://svc/media",
+            "reparto": "http://svc/reparto",
+        },
+    ).normalized()
+
+    assert config.service_names() == ["media", "reparto"]
+
+
+def test_cross_service_targets_use_first_protected_endpoint() -> None:
+    config = LiveTestConfig(
+        service_base_urls={
+            "reparto": "http://svc/reparto/",
+            "media": "http://svc/media",
+        },
+        default_service="reparto",
+        protected_endpoints={
+            "reparto": ["/schools/", "/departments/"],
+            "media": ["/category/"],
+        },
+    ).normalized()
+
+    assert config.cross_service_probe_targets() == [
+        ("reparto", "http://svc/reparto/schools/"),
+        ("media", "http://svc/media/category/"),
+    ]
+
+
+def test_cross_service_endpoint_override_wins_over_protected_endpoints() -> None:
+    config = LiveTestConfig(
+        service_base_url="http://svc/reparto",
+        default_service="default",
+        protected_endpoints={"default": ["/schools/"]},
+        cross_service_endpoints={"default": "academic-years/"},
+    ).normalized()
+
+    assert config.resolve_cross_service_endpoint("default") == "academic-years/"
+    assert config.cross_service_probe_targets() == [
+        ("default", "http://svc/reparto/academic-years/")
+    ]
+
+
+def test_cross_service_targets_skip_services_without_endpoint() -> None:
+    config = LiveTestConfig(
+        service_base_urls={
+            "reparto": "http://svc/reparto",
+            "media": "http://svc/media",
+        },
+        default_service="reparto",
+        protected_endpoints={"media": ["", "/category/"]},
+    ).normalized()
+
+    assert config.resolve_cross_service_endpoint("reparto") is None
+    assert config.cross_service_probe_targets() == [
+        ("media", "http://svc/media/category/")
+    ]
+
+
+def test_cross_service_targets_empty_without_configuration() -> None:
+    assert LiveTestConfig().normalized().cross_service_probe_targets() == []
+
+
+def test_configure_copies_cross_service_endpoint_mapping() -> None:
+    source = {"media": "/category/"}
+
+    config = configure(cross_service_endpoints=source)
+
+    assert config.cross_service_endpoints == source
+    assert config.cross_service_endpoints is not source

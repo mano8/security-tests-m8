@@ -63,6 +63,16 @@ def _env_endpoint_map(name: str) -> dict[str, list[str]]:
     return endpoints
 
 
+def _env_endpoint_str_map(name: str) -> dict[str, str]:
+    raw = os.getenv(name)
+    if raw is None:
+        return {}
+    decoded = json.loads(raw)
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return {str(service): str(endpoint) for service, endpoint in decoded.items()}
+
+
 DEFAULT_PLACEHOLDER_VALUE = "changethis"
 
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
@@ -89,6 +99,7 @@ _FIELD_ENV_NAMES = {
     "fail_fast_preflight": ("LIVE_TEST_FAIL_FAST_PREFLIGHT",),
     "forbid_bootstrap_superuser": ("LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER",),
     "protected_endpoints": ("LIVE_TEST_PROTECTED_ENDPOINTS",),
+    "cross_service_endpoints": ("LIVE_TEST_CROSS_SERVICE_ENDPOINTS",),
     "media_public_prefix": ("LIVE_TEST_MEDIA_PUBLIC_PREFIX",),
     "media_internal_token": ("LIVE_TEST_MEDIA_INTERNAL_TOKEN",),
     "api_key": ("LIVE_TEST_API_KEY",),
@@ -120,6 +131,7 @@ class LiveTestConfig:
     fail_fast_preflight: bool = False
     forbid_bootstrap_superuser: bool = True
     protected_endpoints: dict[str, list[str]] = field(default_factory=dict)
+    cross_service_endpoints: dict[str, str] = field(default_factory=dict)
     media_public_prefix: str = "media"
     media_internal_token: str | None = None
     api_key: str | None = None
@@ -166,6 +178,9 @@ class LiveTestConfig:
                 "LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER", True
             ),
             protected_endpoints=_env_endpoint_map("LIVE_TEST_PROTECTED_ENDPOINTS"),
+            cross_service_endpoints=_env_endpoint_str_map(
+                "LIVE_TEST_CROSS_SERVICE_ENDPOINTS"
+            ),
             media_public_prefix=os.getenv("LIVE_TEST_MEDIA_PUBLIC_PREFIX", "media"),
             media_internal_token=os.getenv("LIVE_TEST_MEDIA_INTERNAL_TOKEN"),
             api_key=os.getenv("LIVE_TEST_API_KEY"),
@@ -180,6 +195,11 @@ class LiveTestConfig:
         protected_endpoints = {
             key: [endpoint for endpoint in endpoints]
             for key, endpoints in self.protected_endpoints.items()
+        }
+        cross_service_endpoints = {
+            key: endpoint
+            for key, endpoint in self.cross_service_endpoints.items()
+            if endpoint
         }
         service_base_url = (
             self.service_base_url.rstrip("/") if self.service_base_url else None
@@ -205,6 +225,7 @@ class LiveTestConfig:
             if self.public_base_url
             else None,
             protected_endpoints=protected_endpoints,
+            cross_service_endpoints=cross_service_endpoints,
             media_public_prefix=self.media_public_prefix.strip("/"),
         )
 
@@ -226,6 +247,51 @@ class LiveTestConfig:
             "No service URL configured. Set LIVE_TEST_SVC_BASE or "
             "LIVE_TEST_SVC_BASES, or call configure(service_base_url=...)."
         )
+
+    def service_names(self) -> list[str]:
+        """Return every configured service name, the default service first.
+
+        Covers both configuration shapes: the ``LIVE_TEST_SVC_BASES`` mapping
+        and the single ``LIVE_TEST_SVC_BASE`` URL, which ``normalized()``
+        registers under the ``"default"`` key.
+        """
+        names = list(self.service_base_urls)
+        default = self.default_service
+        if default in names:
+            names.remove(default)
+            names.insert(0, default)
+        return names
+
+    def resolve_cross_service_endpoint(self, service: str) -> str | None:
+        """Return the probe path used to exercise *service* with an auth token.
+
+        Cross-service suites need one authenticated route per consumer, and no
+        route name is universal across stacks: the consumer decides its own API
+        surface. Resolution is therefore configuration-driven —
+        ``LIVE_TEST_CROSS_SERVICE_ENDPOINTS`` when the probe route is pinned
+        explicitly, otherwise the first entry declared for the service in
+        ``LIVE_TEST_PROTECTED_ENDPOINTS``. Returns ``None`` when neither is
+        configured, so the caller skips instead of probing a guessed route
+        whose 404 would read as a security finding.
+        """
+        pinned = self.cross_service_endpoints.get(service)
+        if pinned:
+            return pinned
+        for endpoint in self.protected_endpoints.get(service, []):
+            if endpoint:
+                return endpoint
+        return None
+
+    def cross_service_probe_targets(self) -> list[tuple[str, str]]:
+        """Return ``(service, url)`` probe targets for cross-service suites."""
+        targets: list[tuple[str, str]] = []
+        for name in self.service_names():
+            endpoint = self.resolve_cross_service_endpoint(name)
+            if endpoint is None:
+                continue
+            base_url = self.service_base_urls[name]
+            targets.append((name, f"{base_url}/{endpoint.lstrip('/')}"))
+        return targets
 
     def private_api_base_url(self) -> str:
         """Return the base URL that exposes ``/private/*`` routes.
@@ -349,6 +415,8 @@ def configure(**kwargs: object) -> LiveTestConfig:
         data["deployment_root"] = Path(str(data["deployment_root"])).resolve()
     if isinstance(data.get("service_base_urls"), Mapping):
         data["service_base_urls"] = dict(data["service_base_urls"])
+    if isinstance(data.get("cross_service_endpoints"), Mapping):
+        data["cross_service_endpoints"] = dict(data["cross_service_endpoints"])
     _CONFIG = LiveTestConfig(**data).normalized()
     install_live_tls_defaults(_CONFIG)
     return _CONFIG

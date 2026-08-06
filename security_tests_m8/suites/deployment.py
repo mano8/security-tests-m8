@@ -34,3 +34,12 @@ class DeploymentPreflightSuite:
         """Env and compose deployment files must pass P0 preflight gates."""
         report = scan_deployment(self._deployment_root())
         report.assert_no_errors()
+
+
+# Class-level marks so they survive subclassing from another module; see the
+# note at the end of `service.py`.
+setattr(
+    DeploymentPreflightSuite,
+    "pytestmark",
+    [pytest.mark.live, pytest.mark.live_security, pytest.mark.live_deployment],
+)

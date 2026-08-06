@@ -17,10 +17,8 @@ and no live signing bypass is introduced anywhere.
 
 Imports of ``security_tests_m8.suites`` are deferred into each test function
 (after ``configure(service_base_url=...)``) because importing the package
-evaluates every suite's class-level URL attributes, including
-``CrossServiceTokenSuite``'s, which otherwise raises ``LookupError`` without a
-configured service base URL — the same reason ``configure()`` precedes
-``list-suites`` in ``tests/test_cli.py``.
+evaluates suite-level configuration — notably ``CrossServiceTokenSuite``'s
+parametrization — so each test sees the configuration it declared.
 """
 
 from __future__ import annotations

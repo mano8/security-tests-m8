@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.6.0 — 2026-08-06
+
+### Fixed
+
+- **`CrossServiceTokenSuite` no longer probes a hardcoded consumer route.**
+  Category I built its URL as `{LIVE_TEST_SVC_BASE}/category/`, a path that
+  only exists on some `fastapi-m8` consumers. Against any stack whose default
+  service does not publish it — for example a `reparto-docente-m8` consumer —
+  the route answered `404 {"detail":"Not Found"}`. That is an *application*
+  404, which the availability guard deliberately does not treat as "target
+  unreachable", so the rejection assertions reported a missing route as
+  `[CRITICAL FAIL-I03] alg=none accepted by downstream fastapi service` and
+  `[CRITICAL FAIL-I05] Attacker key accepted…`, while `test_i01` failed on a
+  perfectly healthy stack. Four false findings, no real security signal.
+  Probe routes are now resolved from live-test configuration only, and a
+  service with no declared route is skipped with an explicit reason rather than
+  probed on a guessed path.
+- **Reusable suites carry their markers on the class, so a subclass is no longer
+  silently deselected.** `ProtectedEndpointSuite`,
+  `ConfiguredProtectedEndpointsSuite`, `ServiceInfoDisclosureSuite`,
+  `ConfiguredServiceInfoDisclosureSuite`, `MediaInternalExposureSuite`,
+  `ApiKeyRedisDegradedSuite` and `DeploymentPreflightSuite` declared
+  `live`/`live_security` only through their module's `pytestmark`. That mark
+  applies to tests collected from *that* module — but these suites exist to be
+  subclassed from a consumer's test module (as `full_security.py` does), where
+  it does not apply. The subclasses collected unmarked and were dropped by any
+  marker expression, including the CLI's default
+  `-m "live and not destructive"`: on a three-consumer stack, **61 checks never
+  ran and never reported anything**, among them every configured
+  protected-endpoint check, the media internal-callback ingress probes and the
+  deployment preflight. The marks are now pinned on the classes, matching the
+  idiom already used in `universal.py`, `algorithms.py` and `token_modes.py`.
+  `tests/test_suite_markers.py` fails if any exported suite loses them again.
+- **Acceptance checks present a token minted for the check.** The positive-path
+  assertions (`test_i01_…`, `ProtectedEndpointSuite.test_valid_token_accepted`,
+  `ConfiguredProtectedEndpointsSuite.test_valid_token_accepted`) used the
+  session-scoped `admin_headers`, minted once at the start of the run. On a
+  stack with single-session semantics — where each new login revokes the
+  previous session — the suite's own later logins (`fresh_login()`, the JWKS
+  kid comparison, the committed-key forge) revoked that token, and consumers
+  answered `403 Token has been revoked` on a perfectly healthy stack. These
+  checks now use the new `fresh_admin_headers` fixture.
+
+  Note for stack owners: presenting a current token also means Category I no
+  longer surfaces a *disagreement* between issuer and consumer about whether an
+  older token is revoked. That disagreement is not something this suite ever
+  claimed to test, but it is worth checking directly on a stack where the
+  issuer's authoritative `/private/v1/jti-status` reports `active` while a
+  consumer answers `Token has been revoked` — that is consumer-side
+  over-eviction, not a token problem.
+
+### Added
+
+- **`fresh_admin_headers` fixture** — function-scoped Authorization headers
+  from a login performed for the individual test, for checks whose subject is
+  that a valid token is accepted. `admin_headers` stays session-scoped and
+  remains the right choice everywhere else.
+
+- **`LIVE_TEST_CROSS_SERVICE_ENDPOINTS`** — optional JSON object mapping a
+  service name to the single route Category I should probe for it. Resolution
+  order per service: this variable, then the first entry of
+  `LIVE_TEST_PROTECTED_ENDPOINTS[service]`, then skip. `LiveTestConfig` gains
+  `cross_service_endpoints`, `service_names()`,
+  `resolve_cross_service_endpoint()`, and `cross_service_probe_targets()`.
+
+### Changed
+
+- **Category I runs once per configured consumer service.** Every service in
+  `LIVE_TEST_SVC_BASES` (or the single `LIVE_TEST_SVC_BASE`) is now exercised,
+  default service first, instead of only the default one — the suite is
+  parametrized by service and each test id names the service it probed. The
+  test names lost their `fastapi_full` suffix (`…_by_service`,
+  `test_i02_forged_token_rejected_by_service`), since that consumer is one
+  `fa-auth-m8` example and never a property of the package.
+- **Downstream rejection checks accept `401` or `403`.** Consumers differ in
+  which refusal status they return; both are a refusal, and `404` is still not.
+  Issuer-side checks keep their exact `403` assertions.
+
 ## 0.5.1 — 2026-07-31
 
 ### Fixed

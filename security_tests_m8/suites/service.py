@@ -37,11 +37,11 @@ class ProtectedEndpointSuite:
         )
         assert response.status_code in (401, 403)
 
-    def test_valid_token_accepted(self, admin_headers: dict[str, str]) -> None:
+    def test_valid_token_accepted(self, fresh_admin_headers: dict[str, str]) -> None:
         """A protected endpoint must accept a valid access token."""
         response = requests.get(
             self._url(),
-            headers=admin_headers,
+            headers=fresh_admin_headers,
             timeout=get_config().timeout,
         )
         assert response.status_code == 200
@@ -79,13 +79,13 @@ class ConfiguredProtectedEndpointsSuite:
 
     @pytest.mark.parametrize(("service", "endpoint"), _configured_protected_endpoints())
     def test_valid_token_accepted(
-        self, service: str, endpoint: str, admin_headers: dict[str, str]
+        self, service: str, endpoint: str, fresh_admin_headers: dict[str, str]
     ) -> None:
         """Configured protected endpoints must accept a valid access token."""
         url = self._url(service, endpoint)
         response = requests.get(
             url,
-            headers=admin_headers,
+            headers=fresh_admin_headers,
             timeout=get_config().timeout,
         )
         assert response.status_code == 200
@@ -136,3 +136,16 @@ class ConfiguredServiceInfoDisclosureSuite:
             assert "Traceback" not in response.text, service_name
             for fragment in _INTERNAL_PATH_FRAGMENTS:
                 assert fragment not in response.text, service_name
+
+
+# A module-level `pytestmark` only marks tests collected from *this* module.
+# These suites are meant to be subclassed from a consumer's own test module
+# (and are by `full_security.py`), where that module-level mark does not apply —
+# so the subclass would collect without `live`/`live_security` and be silently
+# deselected by any marker expression. Pinning the marks on the classes makes
+# them travel with the subclass, as in `universal.py` and `algorithms.py`.
+_SERVICE_MARKS = [pytest.mark.live, pytest.mark.live_security]
+setattr(ProtectedEndpointSuite, "pytestmark", _SERVICE_MARKS)
+setattr(ConfiguredProtectedEndpointsSuite, "pytestmark", _SERVICE_MARKS)
+setattr(ServiceInfoDisclosureSuite, "pytestmark", _SERVICE_MARKS)
+setattr(ConfiguredServiceInfoDisclosureSuite, "pytestmark", _SERVICE_MARKS)

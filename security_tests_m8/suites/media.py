@@ -135,3 +135,12 @@ class MediaInternalExposureSuite:
             f"{response.status_code}, expected 404 at the proxy layer. A stolen "
             f"worker token is remotely replayable. {_FIX}"
         )
+
+
+# Class-level marks so they survive subclassing from another module; see the
+# note at the end of `service.py`.
+setattr(
+    MediaInternalExposureSuite,
+    "pytestmark",
+    [pytest.mark.live, pytest.mark.live_security],
+)

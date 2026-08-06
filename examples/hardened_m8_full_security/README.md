@@ -31,7 +31,10 @@ The example runs every suite wired into `full_security`, including:
 
 - universal auth security suites (attack, structural, authorization, rate limiting, CORS, headers, cookies, disclosure)
 - stateful/stateless/hybrid token contract suites
-- RS256/JWKS/cross-service JWT suites; HS256 rejection and weak-key suites
+- RS256/JWKS JWT suites; HS256 rejection and weak-key suites
+- cross-service JWT propagation, run once per service declared in
+  `LIVE_TEST_SVC_BASES` (here: `fastapi`), on the route resolved from
+  `LIVE_TEST_CROSS_SERVICE_ENDPOINTS` or the first protected endpoint
 - protected endpoint checks for `/fastapi/category/` and `/fastapi/dashboard/users/activity/`
 - **`MediaInternalExposureSuite`** (Category G) — proves media worker callbacks at
   `/media/v1/internal/*` are blocked at the public edge (proxy-layer `404`) with no
@@ -154,7 +157,8 @@ The example defaults are defined in `tests/live/conftest.py` and can be overridd
 | `LIVE_TEST_API_KEY_STRICT_RATE_LIMIT` | `true` | Opt-in; declares strict posture to enable fail-closed assertion |
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | `true` | Abort before collection if auth/services/credentials are not usable |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | `true` | Refuse `FIRST_SUPERUSER` as the test account |
-| `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` | Routes for `ConfiguredProtectedEndpointsSuite` |
+| `LIVE_TEST_PROTECTED_ENDPOINTS` | `{"fastapi":["/category/","/dashboard/users/activity/"]}` | Routes for `ConfiguredProtectedEndpointsSuite`; the first entry per service is also the default cross-service probe route |
+| `LIVE_TEST_CROSS_SERVICE_ENDPOINTS` | unset | Opt-in; pins the `CrossServiceTokenSuite` probe route per service instead of reusing the first protected endpoint |
 | `LIVE_TEST_TIMEOUT` | `10` | Request timeout in seconds |
 | `LIVE_TEST_REPO_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` | Stack root; asymmetric-key tests read `keys/private.pem` from here |
 | `LIVE_TEST_DEPLOYMENT_ROOT` | `/workspace/fa-auth-m8/examples/docker_compose/hardened_m8` | Compose directory for deployment preflight |
@@ -172,7 +176,10 @@ folder (or just its `.env`) and change configuration only:
    `fastapi-m8` consumers.
 3. **Protected endpoints** — set `LIVE_TEST_PROTECTED_ENDPOINTS` to the real
    read endpoints of each service so `ConfiguredProtectedEndpointsSuite` covers
-   them.
+   them. The cross-service JWT suite reuses the first entry of each service's
+   list as its probe route; set `LIVE_TEST_CROSS_SERVICE_ENDPOINTS` to pin a
+   different one. A service with no declared route skips Category I instead of
+   probing a guessed path.
 4. **Public entrypoint / TLS** — set `LIVE_TEST_PUBLIC_BASE` and, for
    self-signed local certs, `LIVE_TEST_PUBLIC_TLS_VERIFY=false` (or a CA bundle
    path); for a real CA, leave verification on.
