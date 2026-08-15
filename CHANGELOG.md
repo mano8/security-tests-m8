@@ -53,6 +53,10 @@
 
 ### Added
 
+- `tests/test_changelog_version_parity.py` — asserts the current
+  `pyproject.toml` `[project]` version has a matching `## x.y.z` heading in
+  `CHANGELOG.md`, so a release can no longer ship undocumented
+  (`A32-changelog-version-parity`).
 - **`fresh_admin_headers` fixture** — function-scoped Authorization headers
   from a login performed for the individual test, for checks whose subject is
   that a valid token is accepted. `admin_headers` stays session-scoped and
