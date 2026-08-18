@@ -150,7 +150,7 @@ from security_tests_m8.full_security import *  # noqa: F403
 The package has three parts:
 
 1. Configuration is stored in a process-wide `LiveTestConfig`. You set it with `security_tests_m8.configure(...)` or environment variables.
-2. The pytest plugin exposes fixtures such as `admin_token`, `admin_headers`, `regular_user`, `stack_config`, `service_base_url`, and `service_url`.
+2. The pytest plugin exposes fixtures such as `admin_token`, `admin_headers`, `fresh_admin_headers`, `regular_user`, `stack_config`, `service_base_url`, and `service_url`.
 3. Suite classes contain the actual tests. Your project imports a suite and subclasses it, which makes pytest collect those tests in your project.
 
 When `fail_fast_preflight=True`, the plugin checks auth health, configured service availability, dedicated test-superuser login, and bootstrap-superuser misuse before collection. If the stack is unavailable or credentials are wrong, pytest exits before the full suite can trigger lockouts.
@@ -232,6 +232,7 @@ live-test target URLs, or set it to a certificate bundle path such as
 | `LIVE_TEST_FAIL_FAST_PREFLIGHT` | Abort before collection if auth, services, or credentials are not usable | `false` |
 | `LIVE_TEST_FORBID_BOOTSTRAP_SUPERUSER` | Refuse `FIRST_SUPERUSER` from `auth.env` as the test account | `true` |
 | `LIVE_TEST_PROTECTED_ENDPOINTS` | JSON object of service names to protected endpoint arrays | `{}` |
+| `LIVE_TEST_CROSS_SERVICE_ENDPOINTS` | JSON object of service names to a single probe path, pinning the route `CrossServiceTokenSuite` uses per service; falls back to the first entry in `LIVE_TEST_PROTECTED_ENDPOINTS` | `{}` |
 | `LIVE_TEST_MEDIA_PUBLIC_PREFIX` | Public path prefix the media stack is mounted under at the edge; the `MediaInternalExposureSuite` probes `<public-base>/<prefix>/v1/internal/*` | `media` |
 | `LIVE_TEST_MEDIA_INTERNAL_TOKEN` | Worker `MEDIA_INTERNAL_SERVICE_TOKEN`; opt-in — proves a *valid* worker token is still blocked (404) at the public edge for `/media/v1/internal/*` | unset |
 | `LIVE_TEST_API_KEY` | Known-valid plaintext API key (minted before a Redis outage); opt-in — the `ApiKeyRedisDegradedSuite` verifies it fails closed (503) while Redis is down | unset |
@@ -338,6 +339,28 @@ class TestOrderList(ProtectedEndpointSuite):
 ```
 
 If a suite names a service that is not configured, setup fails with a clear list of known service names.
+
+## Cross-Service Token Propagation
+
+`CrossServiceTokenSuite` proves that every downstream consumer trusts the issuer's tokens and refuses forged ones. It is fully driven by configuration — no consumer name and no route is baked into the package — and runs once per configured service, using the same `LIVE_TEST_SVC_BASE` / `LIVE_TEST_SVC_BASES` / `LIVE_TEST_DEFAULT_SVC` model as every other suite.
+
+The probe route for a service is resolved in this order:
+
+1. `LIVE_TEST_CROSS_SERVICE_ENDPOINTS[service]`, when you want to pin one exact route.
+2. The first entry of `LIVE_TEST_PROTECTED_ENDPOINTS[service]`.
+3. Otherwise the service is skipped with an explicit reason.
+
+Pick a route that returns `200` with an admin token and `401`/`403` without one. Rejection checks accept either `401` or `403`, since consumers differ in which they return.
+
+```bash
+export LIVE_TEST_SVC_BASES='{"reparto":"http://localhost:9000/reparto","media":"http://localhost:9000/media","prompt":"http://localhost:9000/prompt"}'
+export LIVE_TEST_DEFAULT_SVC="reparto"
+export LIVE_TEST_PROTECTED_ENDPOINTS='{"reparto":["/schools/"],"media":["/category/"],"prompt":["/prompt-template/"]}'
+# optional: pin a different route for the cross-service probe only
+export LIVE_TEST_CROSS_SERVICE_ENDPOINTS='{"reparto":"/academic-years/"}'
+```
+
+There is deliberately no fallback route. A guessed path that a consumer does not publish answers with an application `404`, which is not a refusal — probing it would report a missing route as an accepted forgery.
 
 ## Available Suites
 
@@ -534,7 +557,8 @@ These fixtures are available in consumer tests after the package is installed:
 
 - `stack_config`
 - `admin_token`
-- `admin_headers`
+- `admin_headers` — session-scoped; one token minted at first use and reused for the whole run
+- `fresh_admin_headers` — function-scoped; logs in for the individual test. Use it whenever the check's subject is that a **valid** token is accepted: on a stack that revokes the previous session at each login, the session-scoped token can be legitimately revoked by the time a later acceptance check runs
 - `admin_login`
 - `regular_user` — session-scoped; creates a throwaway `redteam_<hex>@redteam-test.com` non-superuser and deletes it (best-effort, via the admin account) at session teardown
 - `live_jwks_keys`

@@ -324,6 +324,32 @@ def admin_headers(admin_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {admin_token}"}
 
 
+@pytest.fixture
+def fresh_admin_headers() -> dict[str, str]:
+    """Return Authorization headers from a login performed *now*.
+
+    ``admin_headers`` is session-scoped: one token minted at first use and
+    reused for the whole run. That is fine for the many checks that only need
+    *an* issuer-signed token, but it is wrong for a check whose subject is that
+    a valid token is **accepted**. Stacks with single-session semantics revoke
+    the previous session on each new login, and the suite logs in repeatedly
+    (``fresh_login()``, JWKS kid comparison, the committed-key forge). The
+    session token can therefore be legitimately revoked by the time a later
+    acceptance check runs — the downstream consumer answers
+    ``403 Token has been revoked`` and an otherwise healthy stack reports a
+    failure. Acceptance checks use this fixture so the token they present is
+    always current.
+    """
+    config = get_config()
+    response = requests.post(
+        f"{config.auth_base_url}/login/access-token",
+        data={"username": config.admin_email, "password": config.admin_password},
+        timeout=config.timeout,
+    )
+    assert response.status_code == 200, f"Admin login failed: {response.text}"
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 @pytest.fixture(scope="session")
 def admin_login() -> dict[str, object]:
     """Return a full admin login response: access token, cookies, and headers."""

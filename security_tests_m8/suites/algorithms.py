@@ -1,8 +1,8 @@
 """
 Live Security Tests — Asymmetric Algorithms (RS256 / ES256)
 ===========================================================
-Target:  http://localhost:9000/user/    (auth_user_service)
-         http://localhost:9000/fastapi/ (fastapi_full)
+Target:  the auth issuer at LIVE_TEST_AUTH_BASE, plus every consumer service
+         declared in LIVE_TEST_SVC_BASE / LIVE_TEST_SVC_BASES.
 Config:  ACCESS_TOKEN_ALGORITHM=RS256 or ES256
 
 Attacker Scenarios
@@ -37,7 +37,7 @@ import requests
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
-from security_tests_m8._client import AUTH_BASE, SVC_BASE, TIMEOUT, fresh_login
+from security_tests_m8._client import AUTH_BASE, TIMEOUT, fresh_login
 from security_tests_m8._config import get_config
 from security_tests_m8.forge import (
     access_payload,
@@ -61,6 +61,44 @@ _PrivateKey: TypeAlias = RSAPrivateKey | EllipticCurvePrivateKey
 
 def _auth(bearer: str) -> dict:
     return {"Authorization": f"Bearer {bearer}"}
+
+
+def _attacker_key_token(alg: str, live_jwks_keys: list[dict]) -> str:
+    """Forge a superuser token signed with a freshly generated attacker key.
+
+    The key matches the stack's algorithm family and reuses the live ``kid`` so
+    the server evaluates key identity rather than failing earlier on an
+    algorithm or header mismatch.
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    signing_jwk = next(
+        (
+            k
+            for k in live_jwks_keys
+            if k.get("kty") in {"RSA", "EC"} and k.get("use", "sig") == "sig"
+        ),
+        None,
+    )
+    live_kid = signing_jwk.get("kid", "unknown") if signing_jwk else "unknown"
+
+    if alg.startswith("RS"):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        key: _PrivateKey = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        )
+    else:
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        key = ec.generate_private_key(ec.SECP256R1())
+
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode()
+    return forge_asymmetric(pem, alg, is_superuser=True, kid=live_kid)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -228,41 +266,10 @@ class AsymmetricJWTSuite:
     def test_b10_attacker_generated_key_rejected(
         self, stack_config: dict, live_jwks_keys: list[dict]
     ):
-        """Token signed with attacker-generated key must be rejected.
-
-        Generates a key matching the stack's algorithm family so the server
-        evaluates key identity rather than failing earlier on algorithm mismatch.
-        """
-        from cryptography.hazmat.primitives import serialization
-
-        alg = stack_config.get("algorithm", "RS256")
-        signing_jwk = next(
-            (
-                k
-                for k in live_jwks_keys
-                if k.get("kty") in {"RSA", "EC"} and k.get("use", "sig") == "sig"
-            ),
-            None,
+        """Token signed with attacker-generated key must be rejected."""
+        token = _attacker_key_token(
+            stack_config.get("algorithm", "RS256"), live_jwks_keys
         )
-        live_kid = signing_jwk.get("kid", "unknown") if signing_jwk else "unknown"
-
-        if alg.startswith("RS"):
-            from cryptography.hazmat.primitives.asymmetric import rsa
-
-            k: _PrivateKey = rsa.generate_private_key(
-                public_exponent=65537, key_size=2048
-            )
-        else:
-            from cryptography.hazmat.primitives.asymmetric import ec
-
-            k = ec.generate_private_key(ec.SECP256R1())
-
-        pem = k.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        ).decode()
-        token = forge_asymmetric(pem, alg, is_superuser=True, kid=live_kid)
         r = requests.get(_ME, headers=_auth(token), timeout=TIMEOUT)
         assert r.status_code == 403, (
             "[CRITICAL FAIL-B10] Token signed with attacker key was ACCEPTED"
@@ -353,75 +360,103 @@ class JWKSSuite:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+_REJECTED = (401, 403)
+
+_NO_CROSS_SERVICE_TARGET = (
+    "No cross-service probe endpoint is configured. Declare the consumer "
+    "services in LIVE_TEST_SVC_BASES (or LIVE_TEST_SVC_BASE) and one "
+    "authenticated route per service in LIVE_TEST_PROTECTED_ENDPOINTS, or pin "
+    "the probe route explicitly with LIVE_TEST_CROSS_SERVICE_ENDPOINTS."
+)
+
+
+def _cross_service_params() -> list[object]:
+    """Build one parameter per configured consumer service.
+
+    The probe route comes from configuration rather than from a hardcoded path:
+    every downstream consumer publishes its own API surface, so a fixed route
+    would 404 on any stack that does not happen to expose it — and an
+    application 404 on a rejection test reads as an accepted forgery.
+    """
+    targets = get_config().cross_service_probe_targets()
+    if not targets:
+        return [
+            pytest.param(
+                "unconfigured",
+                "",
+                id="unconfigured",
+                marks=pytest.mark.skip(reason=_NO_CROSS_SERVICE_TARGET),
+            )
+        ]
+    return [pytest.param(service, url, id=service) for service, url in targets]
+
+
 class CrossServiceTokenSuite:
-    """Category I — downstream asymmetric token acceptance/rejection."""
+    """Category I — downstream asymmetric token acceptance/rejection.
 
-    _SVC_LIST = f"{SVC_BASE}/category/"
+    Runs against every consumer service declared in the live-test
+    configuration, so the suite is stack-agnostic: no consumer name or route is
+    baked into the package.
+    """
 
-    def test_i01_valid_auth_token_accepted_by_fastapi_full(self, admin_headers: dict):
-        r = requests.get(self._SVC_LIST, headers=admin_headers, timeout=TIMEOUT)
+    @pytest.mark.parametrize(("service", "url"), _cross_service_params())
+    def test_i01_valid_auth_token_accepted_by_service(
+        self, service: str, url: str, fresh_admin_headers: dict
+    ):
+        """An issuer-minted admin token must be accepted by the consumer.
+
+        Uses a token minted for this check so a stack that revokes the previous
+        session on each new login cannot turn token propagation into a false
+        failure.
+        """
+        r = requests.get(url, headers=fresh_admin_headers, timeout=TIMEOUT)
         assert r.status_code == 200, (
-            f"Cross-service token propagation failed: {r.status_code} {r.text}"
+            f"Cross-service token propagation failed for {service!r} at {url}: "
+            f"{r.status_code} {r.text}"
         )
 
-    def test_i02_forged_token_accepted_by_fastapi_full(self, committed_key_forge):
+    @pytest.mark.parametrize(("service", "url"), _cross_service_params())
+    def test_i02_forged_token_rejected_by_service(
+        self, service: str, url: str, committed_key_forge
+    ):
         """A forged token made with a repo-visible key must not reach downstream."""
         token = committed_key_forge(is_superuser=True)
-        r = requests.get(self._SVC_LIST, headers=_auth(token), timeout=TIMEOUT)
+        r = requests.get(url, headers=_auth(token), timeout=TIMEOUT)
         assert r.status_code != 200, (
             "[CRITICAL FAIL-I02] Forged JWT from a repo-visible key was "
-            "accepted by downstream service."
+            f"accepted by downstream service {service!r}."
         )
 
-    def test_i03_alg_none_rejected_by_fastapi_full(self):
-        r = requests.get(
-            self._SVC_LIST, headers=_auth(forge_alg_none()), timeout=TIMEOUT
-        )
-        assert r.status_code == 403, (
-            "[CRITICAL FAIL-I03] alg=none accepted by downstream fastapi service"
+    @pytest.mark.parametrize(("service", "url"), _cross_service_params())
+    def test_i03_alg_none_rejected_by_service(self, service: str, url: str):
+        r = requests.get(url, headers=_auth(forge_alg_none()), timeout=TIMEOUT)
+        assert r.status_code in _REJECTED, (
+            f"[CRITICAL FAIL-I03] alg=none accepted by downstream service {service!r}"
         )
 
-    def test_i04_fastapi_full_rejects_no_token(self):
-        r = requests.get(self._SVC_LIST, timeout=TIMEOUT)
-        assert r.status_code in (401, 403)
+    @pytest.mark.parametrize(("service", "url"), _cross_service_params())
+    def test_i04_service_rejects_no_token(self, service: str, url: str):
+        r = requests.get(url, timeout=TIMEOUT)
+        assert r.status_code in _REJECTED, (
+            f"[CRITICAL FAIL-I04] Downstream service {service!r} served a "
+            f"protected route without a token: {r.status_code}"
+        )
 
-    def test_i05_attacker_generated_key_rejected_by_fastapi_full(
-        self, stack_config: dict, live_jwks_keys: list[dict]
+    @pytest.mark.parametrize(("service", "url"), _cross_service_params())
+    def test_i05_attacker_generated_key_rejected_by_service(
+        self,
+        service: str,
+        url: str,
+        stack_config: dict,
+        live_jwks_keys: list[dict],
     ):
         """Downstream service must also reject tokens from an attacker-generated key."""
-        from cryptography.hazmat.primitives import serialization
-
         alg = stack_config.get("algorithm", "RS256")
-        signing_jwk = next(
-            (
-                k
-                for k in live_jwks_keys
-                if k.get("kty") in {"RSA", "EC"} and k.get("use", "sig") == "sig"
-            ),
-            None,
-        )
-        live_kid = signing_jwk.get("kid", "unknown") if signing_jwk else "unknown"
-
-        if alg.startswith("RS"):
-            from cryptography.hazmat.primitives.asymmetric import rsa
-
-            k: _PrivateKey = rsa.generate_private_key(
-                public_exponent=65537, key_size=2048
-            )
-        else:
-            from cryptography.hazmat.primitives.asymmetric import ec
-
-            k = ec.generate_private_key(ec.SECP256R1())
-
-        pem = k.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        ).decode()
-        token = forge_asymmetric(pem, alg, is_superuser=True, kid=live_kid)
-        r = requests.get(self._SVC_LIST, headers=_auth(token), timeout=TIMEOUT)
-        assert r.status_code == 403, (
-            "[CRITICAL FAIL-I05] Attacker key accepted by downstream fastapi service"
+        token = _attacker_key_token(alg, live_jwks_keys)
+        r = requests.get(url, headers=_auth(token), timeout=TIMEOUT)
+        assert r.status_code in _REJECTED, (
+            f"[CRITICAL FAIL-I05] Attacker key accepted by downstream service "
+            f"{service!r}"
         )
 
 

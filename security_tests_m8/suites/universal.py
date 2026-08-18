@@ -1,8 +1,8 @@
 """
 Live Security Test Suite — Universal (any stack, any algorithm, any token mode)
 ================================================================================
-Target:  http://localhost:9000/user/    (auth_user_service)
-         http://localhost:9000/fastapi/ (fastapi_full)
+Target:  the auth issuer at LIVE_TEST_AUTH_BASE, plus every consumer service
+         declared in LIVE_TEST_SVC_BASE / LIVE_TEST_SVC_BASES.
 
 Run against any running compose stack:
     pytest tests/live/test_security_universal.py -v --no-cov

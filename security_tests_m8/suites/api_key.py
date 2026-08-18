@@ -123,3 +123,12 @@ class ApiKeyRedisDegradedSuite:
             "[SECURITY FAIL-N02] Degraded API-key verification advertised "
             "X-RateLimit-Limit while Redis cannot enforce it. " + _FIX
         )
+
+
+# Class-level marks so they survive subclassing from another module; see the
+# note at the end of `service.py`.
+setattr(
+    ApiKeyRedisDegradedSuite,
+    "pytestmark",
+    [pytest.mark.live, pytest.mark.live_security],
+)
