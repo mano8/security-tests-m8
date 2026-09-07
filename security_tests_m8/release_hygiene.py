@@ -38,9 +38,12 @@ _SKIP_DIR_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Runtime data directory names — must not appear anywhere on a release surface
+# Runtime data directory names — must not appear anywhere on a release surface.
+# "minio" is kept even though the fleet's object-storage backend moved to
+# SeaweedFS (object-storage-backend-migration, T22-hygiene-dir-names) — it still
+# guards historical worktrees checked out before the migration landed.
 _BLOCKED_RUNTIME_DIR_NAMES: frozenset[str] = frozenset(
-    {"minio", "redis", "media_redis", "db_data", "vault"}
+    {"minio", "seaweedfs", "redis", "media_redis", "db_data", "vault"}
 )
 # Directories whose "data" subdirectory is a blocked runtime artifact
 _BLOCKED_DATA_PARENT_NAMES: frozenset[str] = frozenset({"grafana", "prometheus"})
