@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -9,6 +10,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
+    load_pem_public_key,
+)
 
 Severity = Literal["error", "warning"]
 
@@ -46,6 +52,10 @@ _DEFAULT_ROOT_DB_PASSWORDS = {"postgres", "password", "changethis"}
 _EXAMPLE_ENV_SUFFIXES = (".env.example",)
 _EXAMPLE_ENV_NAMES = {".env.example", "env.example"}
 _DOCKER_SOCKET_PATH = "/var/run/docker.sock"
+# Mirrors fa-auth-m8's auth_user_service.core.key_ids.KID_HEX_LENGTH and
+# init-keys.sh's `cut -c1-16` — one derivation, checked independently here.
+_KID_HEX_LENGTH = 16
+_ASYMMETRIC_ALGORITHM_PREFIXES = ("RS", "ES")
 
 
 @dataclass(frozen=True)
@@ -613,6 +623,83 @@ def _scan_public_service_ports(
                     )
 
 
+def _derive_kid(public_pem: str) -> str:
+    """Return the canonical ``kid`` for a PEM public key.
+
+    Same derivation as ``fa-auth-m8``'s ``derive_kid`` and ``init-keys.sh``:
+    SHA-256 of the key's SubjectPublicKeyInfo DER encoding, first 16 hex
+    characters. Kept as an independent implementation here (rather than an
+    import) so the scanner does not gain a runtime dependency on the service
+    it audits.
+    """
+    key = load_pem_public_key(public_pem.encode())
+    der = key.public_bytes(
+        encoding=Encoding.DER,
+        format=PublicFormat.SubjectPublicKeyInfo,
+    )
+    return hashlib.sha256(der).hexdigest()[:_KID_HEX_LENGTH]
+
+
+def _scan_access_key_id_binding(
+    findings: list[DeploymentFinding],
+    root: Path,
+    latest: Mapping[str, EnvValue],
+) -> None:
+    """Flag an ``ACCESS_KEY_ID`` that does not match the mounted public key.
+
+    Reads ``ACCESS_TOKEN_ALGORITHM`` and ``ACCESS_KEY_ID`` from the collected
+    env values. Only asymmetric algorithms (``RS*``/``ES*``) are checked; HS*
+    stacks sign with a shared secret and never publish a ``kid``. A stack with
+    no ``keys/public.pem`` yet (not provisioned) produces no finding —
+    ``init-keys.sh`` will write both the key and ``ACCESS_KEY_ID`` together.
+    Never prints key material — only the derived fingerprint
+    (``SEC-NO-SECRET-DISCLOSURE``).
+    """
+    algorithm = latest.get("ACCESS_TOKEN_ALGORITHM")
+    if algorithm is None or not algorithm.value.strip().upper().startswith(
+        _ASYMMETRIC_ALGORITHM_PREFIXES
+    ):
+        return
+
+    public_key_path = root / "keys" / "public.pem"
+    if not public_key_path.is_file():
+        return
+
+    access_key_id = latest.get("ACCESS_KEY_ID")
+    if access_key_id is None or not access_key_id.value.strip():
+        findings.append(
+            DeploymentFinding(
+                code="access-key-id-unbound",
+                message=(
+                    "ACCESS_KEY_ID is not set for an asymmetric algorithm; "
+                    "run init-keys.sh to bind it to keys/public.pem"
+                ),
+                severity="warning",
+                path=algorithm.path,
+                key="ACCESS_KEY_ID",
+            )
+        )
+        return
+
+    try:
+        public_pem = public_key_path.read_text(encoding="utf-8")
+        expected_kid = _derive_kid(public_pem)
+    except (OSError, ValueError):
+        # An unparsable key is not this check's concern — leave it to the
+        # service's own startup validation, which will fail closed on it.
+        return
+
+    if access_key_id.value.strip() != expected_kid:
+        _add(
+            findings,
+            "access-key-id-unbound",
+            f"ACCESS_KEY_ID is not bound to keys/public.pem; expected "
+            f"{expected_kid} (see init-keys.sh)",
+            "error",
+            access_key_id,
+        )
+
+
 def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     """Scan a compose deployment directory for P0 preflight security failures."""
     deployment_root = Path(root).resolve()
@@ -631,6 +718,7 @@ def scan_deployment(root: str | Path) -> DeploymentPreflightReport:
     _scan_default_credentials(findings, values)
     _scan_docker_socket_mounts(findings, deployment_root, compose_files, latest)
     _scan_public_service_ports(findings, deployment_root, compose_files, latest)
+    _scan_access_key_id_binding(findings, deployment_root, latest)
 
     return DeploymentPreflightReport(
         root=deployment_root, findings=tuple(findings), scanned_files=scanned_files

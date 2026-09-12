@@ -1,7 +1,11 @@
+import hashlib
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from security_tests_m8.deployment import (
     DeploymentFinding,
@@ -657,5 +661,180 @@ def test_public_service_port_skipped_for_dev_stack(tmp_path: Path) -> None:
         """,
     )
     # No env file → not flagged as hardened/production.
-
     assert "public-service-port" not in _codes(tmp_path)
+
+
+def _rsa_public_pem() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return (
+        key.public_key()
+        .public_bytes(
+            encoding=Encoding.PEM,
+            format=PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+def _ec_public_pem() -> str:
+    key = ec.generate_private_key(ec.SECP256R1())
+    return (
+        key.public_key()
+        .public_bytes(
+            encoding=Encoding.PEM,
+            format=PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+def _expected_kid(public_pem: str) -> str:
+    key = serialization.load_pem_public_key(public_pem.encode())
+    der = key.public_bytes(
+        encoding=Encoding.DER,
+        format=PublicFormat.SubjectPublicKeyInfo,
+    )
+    return hashlib.sha256(der).hexdigest()[:16]
+
+
+def test_access_key_id_bound_to_rsa_key_passes_preflight(tmp_path: Path) -> None:
+    public_pem = _rsa_public_pem()
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(public_pem, encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        f"""
+        ACCESS_TOKEN_ALGORITHM=RS256
+        ACCESS_KEY_ID={_expected_kid(public_pem)}
+        """,
+    )
+
+    assert "access-key-id-unbound" not in _codes(tmp_path)
+
+
+def test_access_key_id_bound_to_ec_key_passes_preflight(tmp_path: Path) -> None:
+    public_pem = _ec_public_pem()
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(public_pem, encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        f"""
+        ACCESS_TOKEN_ALGORITHM=ES256
+        ACCESS_KEY_ID={_expected_kid(public_pem)}
+        """,
+    )
+
+    assert "access-key-id-unbound" not in _codes(tmp_path)
+
+
+def test_access_key_id_stale_value_fails_preflight_naming_expected_kid(
+    tmp_path: Path,
+) -> None:
+    public_pem = _rsa_public_pem()
+    expected = _expected_kid(public_pem)
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(public_pem, encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=RS256
+        ACCESS_KEY_ID=0000000000000000
+        """,
+    )
+
+    report = scan_deployment(tmp_path)
+    findings = [f for f in report.findings if f.code == "access-key-id-unbound"]
+
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert expected in findings[0].message
+
+
+def test_access_key_id_missing_warns_on_asymmetric_stack(tmp_path: Path) -> None:
+    public_pem = _rsa_public_pem()
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(public_pem, encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=RS256
+        """,
+    )
+
+    report = scan_deployment(tmp_path)
+    findings = [f for f in report.findings if f.code == "access-key-id-unbound"]
+
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+
+
+def test_access_key_id_check_skipped_for_hs256_with_stray_public_key(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(_rsa_public_pem(), encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=HS256
+        ACCESS_KEY_ID=0000000000000000
+        """,
+    )
+
+    assert "access-key-id-unbound" not in _codes(tmp_path)
+
+
+def test_access_key_id_check_skipped_when_public_key_not_provisioned(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=RS256
+        ACCESS_KEY_ID=0000000000000000
+        """,
+    )
+
+    assert "access-key-id-unbound" not in _codes(tmp_path)
+
+
+def test_access_key_id_check_skipped_for_unparsable_public_key(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text("not a pem", encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=RS256
+        ACCESS_KEY_ID=0000000000000000
+        """,
+    )
+
+    assert "access-key-id-unbound" not in _codes(tmp_path)
+
+
+def test_deployment_preflight_cli_reports_access_key_id_unbound(
+    capsys, tmp_path: Path, monkeypatch
+) -> None:
+    from security_tests_m8.cli import main
+
+    public_pem = _rsa_public_pem()
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "public.pem").write_text(public_pem, encoding="utf-8")
+    _write(
+        tmp_path / "auth.env",
+        """
+        ACCESS_TOKEN_ALGORITHM=RS256
+        ACCESS_KEY_ID=0000000000000000
+        """,
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LIVE_TEST_DEPLOYMENT_ROOT", raising=False)
+
+    exit_code = main(["preflight", "--deployment-root", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL deployment-preflight - deployment did not pass" in captured.out
+    assert "access-key-id-unbound" in captured.out
