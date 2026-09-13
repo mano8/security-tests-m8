@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import uuid
 import warnings
@@ -75,6 +76,27 @@ def _pub_der(key: _PublicKey) -> bytes:
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
     return key.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+
+
+_KID_HEX_LENGTH = 16
+
+
+def jwk_der_kid(jwk: dict[str, object]) -> str:
+    """Return the canonical ``kid`` for a JWK's own public-key material.
+
+    Same derivation as ``fa-auth-m8``'s ``derive_kid`` and ``init-keys.sh`` —
+    and the independent reimplementation in this package's own deployment
+    preflight (``security_tests_m8.deployment._derive_kid``): SHA-256 of the
+    key's SubjectPublicKeyInfo DER encoding, first 16 hex characters. Built
+    from the JWK's own ``n``/``e`` or ``x``/``y`` components rather than a PEM
+    file, so it can run against a live JWKS response with no filesystem
+    access to the issuer's key material — the published ``kid`` is only a
+    label (``ACCESS_KEY_ID``/``ACCESS_KEY_ID_OLD``, see
+    ``auth_user_service.routes.jwks``); this recomputes the value that label
+    is supposed to equal.
+    """
+    der = _pub_der(_jwk_to_public_key(jwk))
+    return hashlib.sha256(der).hexdigest()[:_KID_HEX_LENGTH]
 
 
 def _find_committed_private_key(
@@ -303,6 +325,47 @@ def live_jwks_keys() -> list[dict[str, object]]:
     except (ValueError, requests.RequestException):
         pass
     return []
+
+
+_JWKS_CONCURRENT_SAMPLE_COUNT = 20
+
+
+def fetch_jwks_concurrently(
+    count: int = _JWKS_CONCURRENT_SAMPLE_COUNT,
+) -> list[list[dict[str, object]] | None]:
+    """Fetch the JWKS endpoint ``count`` times concurrently, one sink each.
+
+    Audit ``§2.3`` traced the plan's originating claim — one endpoint serving
+    two RSA keys — to a shared-response artifact: concurrent requests that
+    wrote into the *same* mutable sink, so a report describing request N could
+    actually be reading response N+1. Each request here gets its own
+    ``requests.Session`` (its own connection/file descriptor) and its own slot
+    in the returned list, populated by index rather than by
+    ``list.append`` from worker threads, so a race can only ever produce a
+    wrong value at its own index — never bleed into a neighbor's. A failed or
+    non-200 sample is recorded as ``None`` rather than dropped, so the sample
+    count returned always equals ``count``.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    config = get_config()
+    url = f"{config.auth_base_url}/.well-known/jwks.json"
+    results: list[list[dict[str, object]] | None] = [None] * count
+
+    def _fetch_one(index: int) -> None:
+        try:
+            with requests.Session() as session:
+                response = session.get(url, timeout=config.timeout)
+            if response.status_code == 200:
+                keys = response.json().get("keys", [])
+                if isinstance(keys, list):
+                    results[index] = [k for k in keys if isinstance(k, dict)]
+        except (ValueError, requests.RequestException):
+            pass
+
+    with ThreadPoolExecutor(max_workers=count) as pool:
+        list(pool.map(_fetch_one, range(count)))
+    return results
 
 
 @pytest.fixture(scope="session")
