@@ -47,6 +47,7 @@ from security_tests_m8.forge import (
     forge_asymmetric,
     forge_hs256_with_pubkey,
 )
+from security_tests_m8.plugin import fetch_jwks_concurrently, jwk_der_kid
 
 pytestmark = [
     pytest.mark.live,
@@ -353,6 +354,69 @@ class JWKSSuite:
                     )
             else:
                 pytest.fail(f"[SECURITY FAIL-H05] Unknown key type: {kty!r}")
+
+    def test_h06_jwks_deterministic_across_concurrent_requests(self):
+        """W3.5(a): N concurrent JWKS fetches, each into its own sink, agree.
+
+        The plan's originating claim — one issuer serving two RSA keys under
+        one ``kid`` — traced (audit §2.3) to a shared-response measurement
+        artifact, not a real dual-issuer response. This is the permanent
+        regression for that: every sample uses its own connection and its own
+        slot in the result list, so a real disagreement (a second, unrelated
+        issuer answering behind the same name — see plan §0.2) cannot be
+        confused with a race in the test harness itself.
+        """
+        samples = fetch_jwks_concurrently()
+        assert samples, "[SECURITY FAIL-H06] No concurrent JWKS samples fetched"
+        missing = [i for i, s in enumerate(samples) if s is None]
+        assert not missing, (
+            f"[SECURITY FAIL-H06] {len(missing)}/{len(samples)} concurrent JWKS "
+            f"requests failed outright (indices {missing})"
+        )
+        kid_sets = [frozenset(k.get("kid") for k in sample) for sample in samples]
+        first = kid_sets[0]
+        disagreeing = [i for i, s in enumerate(kid_sets) if s != first]
+        assert not disagreeing, (
+            "[SECURITY FAIL-H06] JWKS `kid` set is not deterministic across "
+            f"concurrent requests: sample 0 = {sorted(first)}, "
+            f"disagreeing indices {disagreeing} (see plan §0.2 — check for a "
+            "shared app-network/DNS name serving two issuers)"
+        )
+
+    def test_h07_jwks_kid_equals_own_key_fingerprint(
+        self, live_jwks_keys: list[dict[str, object]]
+    ):
+        """W3.5(b): every published `kid` equals the DER fingerprint of its
+        own JWK.
+
+        `kid` is a free-text label (`ACCESS_KEY_ID`/`ACCESS_KEY_ID_OLD`), not
+        derived from the key it is attached to at read time — see
+        `auth_user_service.routes.jwks.build_key_set`. This recomputes the
+        fingerprint from each JWK's own `n`/`e` or `x`/`y` components and
+        checks it against that JWK's declared `kid`, so an unbound
+        `ACCESS_KEY_ID` (J1) fails here even though the JWKS response is
+        otherwise well-formed.
+        """
+        assert live_jwks_keys, "[SECURITY FAIL-H07] JWKS has no keys"
+        mismatches = []
+        for jwk in live_jwks_keys:
+            if jwk.get("use", "sig") != "sig":
+                continue
+            declared_kid = jwk.get("kid")
+            try:
+                expected_kid = jwk_der_kid(jwk)
+            except (KeyError, TypeError, ValueError) as exc:
+                pytest.fail(
+                    f"[SECURITY FAIL-H07] Could not reconstruct key for JWK "
+                    f"kid={declared_kid!r}: {exc}"
+                )
+            if declared_kid != expected_kid:
+                mismatches.append((declared_kid, expected_kid))
+        assert not mismatches, (
+            "[SECURITY FAIL-H07] JWKS `kid` not bound to its own key's DER "
+            f"fingerprint: {mismatches} (declared, expected) — see "
+            "init-keys.sh / ACCESS_KEY_ID"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

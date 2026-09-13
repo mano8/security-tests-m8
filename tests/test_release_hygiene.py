@@ -146,7 +146,14 @@ def test_dot_sqlite3_file_blocked(tmp_path: Path) -> None:
 
 
 def test_minio_dir_blocked(tmp_path: Path) -> None:
+    """Kept for historical worktrees predating the SeaweedFS migration."""
     (tmp_path / "minio").mkdir()
+
+    assert "runtime-data-dir" in _codes(tmp_path)
+
+
+def test_seaweedfs_dir_blocked(tmp_path: Path) -> None:
+    (tmp_path / "seaweedfs").mkdir()
 
     assert "runtime-data-dir" in _codes(tmp_path)
 
