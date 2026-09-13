@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.0 — 2026-09-13
+
+### Added
+
+- **Static `ACCESS_KEY_ID` / public-key binding preflight (`W0.3`).**
+  `scan_deployment` gains `_scan_access_key_id_binding`
+  (`security_tests_m8/deployment.py`). When `ACCESS_TOKEN_ALGORITHM` is
+  RS*/ES* and `keys/public.pem` exists, it derives the expected `kid` (SHA-256
+  of the SPKI DER encoding, first 16 hex characters — the same derivation as
+  `fa-auth-m8`'s `derive_kid` and `init-keys.sh`) and compares it to
+  `ACCESS_KEY_ID`: a mismatch is an `access-key-id-unbound` error naming the
+  expected `kid` and pointing at `init-keys.sh`; a missing `ACCESS_KEY_ID` on
+  an RS/ES stack is a warning; an unprovisioned stack (no `public.pem`) and
+  HS* algorithms produce no finding. Only the derived fingerprint ever appears
+  in a message, never key material. Because `init-common.sh` already runs this
+  preflight, every stack's `bash init.sh` surfaces the finding with no change
+  to the stacks.
+- **Permanent JWKS `kid`/key-binding regression tests (`W3.5`).** `JWKSSuite`
+  (Category H, `security_tests_m8/suites/algorithms.py`) gains
+  `test_h06_jwks_deterministic_across_concurrent_requests` — N concurrent
+  fetches of the JWKS endpoint, each on its own `requests.Session` and written
+  into its own result slot, asserting every sample's `kid` set agrees — and
+  `test_h07_jwks_kid_equals_own_key_fingerprint` — rebuilds each published
+  JWK's public key from its own `n`/`e` or `x`/`y` components, recomputes the
+  DER-SHA256 `kid` and asserts it equals the declared one, so an unbound
+  `ACCESS_KEY_ID` (J1) fails even though the JWKS response is otherwise
+  well-formed. Supporting helpers `jwk_der_kid()` and
+  `fetch_jwks_concurrently()` are added to `security_tests_m8/plugin.py`.
+  Closes the last open step of the 2026-09-08 `fa-auth-m8` JWKS
+  `kid`/key-binding remediation plan.
+
+### Changed
+
+- **Release hygiene blocks the `seaweedfs/` runtime directory name** (`T22`,
+  object-storage-backend migration). `_BLOCKED_RUNTIME_DIR_NAMES` in
+  `security_tests_m8/release_hygiene.py` gains `seaweedfs`, the ratified
+  backend's runtime data directory in every stack that runs it; `minio` is
+  kept to keep guarding worktrees checked out before the migration landed.
+
 ## 0.6.0 — 2026-08-06
 
 ### Fixed
