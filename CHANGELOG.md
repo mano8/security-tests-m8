@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 — 2026-09-13
+## 0.7.0 — 2026-09-14
 
 ### Added
 
@@ -38,6 +38,24 @@
   `security_tests_m8/release_hygiene.py` gains `seaweedfs`, the ratified
   backend's runtime data directory in every stack that runs it; `minio` is
   kept to keep guarding worktrees checked out before the migration landed.
+- **Pinned dependency snapshot refreshed for the release.** `constraints-all.txt`
+  is regenerated from scratch (`pip-compile --upgrade`, Python 3.12) on top of
+  the September Dependabot bumps (cryptography 50.0.1, packaging 26.3,
+  charset-normalizer 3.5.1, coverage 7.16.x, msgpack 1.2.2). The refresh also
+  repairs a stale transitive pin the bumps had left behind — `librt==0.12.0`
+  no longer satisfied `mypy 2.3.0`'s `>=0.13.0`, so the snapshot was not
+  installable as a constraint set — and moves the direct runtime pins to
+  `pyjwt==2.14.0` and `cryptography==50.0.1`. The `>=` ranges in
+  `pyproject.toml` are unchanged. The full quality gate (`ruff format`,
+  `ruff check`, `mypy`, `bandit`, `pytest` at 100% coverage) was run against
+  the new snapshot on Python 3.12 and 3.14; the CI matrix and classifiers stay
+  at 3.12/3.13/3.14, the current stable set.
+- **`all` extra declared.** CI has always installed `.[all,dev]`, the
+  fleet-wide install target, but `pyproject.toml` declared no `all` extra, so
+  every install emitted pip's "does not provide the extra" warning. The extra
+  now exists (empty — this package has no optional features; everything the
+  suites need is a core dependency) so the target resolves cleanly and can
+  grow when an optional feature lands.
 
 ## 0.6.0 — 2026-08-06
 

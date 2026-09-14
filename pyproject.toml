@@ -31,6 +31,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Install every optional feature. This package has none today — everything the
+# suites need is a core dependency — but CI and downstream installs target
+# `.[all,dev]` fleet-wide, so the extra must resolve rather than warn.
+all = []
 dev = [
     "bandit>=1.9.4",
     "mypy>=2.1.0",
