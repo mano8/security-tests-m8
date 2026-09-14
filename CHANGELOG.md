@@ -50,6 +50,12 @@
   `ruff check`, `mypy`, `bandit`, `pytest` at 100% coverage) was run against
   the new snapshot on Python 3.12 and 3.14; the CI matrix and classifiers stay
   at 3.12/3.13/3.14, the current stable set.
+- **`all` extra declared.** CI has always installed `.[all,dev]`, the
+  fleet-wide install target, but `pyproject.toml` declared no `all` extra, so
+  every install emitted pip's "does not provide the extra" warning. The extra
+  now exists (empty — this package has no optional features; everything the
+  suites need is a core dependency) so the target resolves cleanly and can
+  grow when an optional feature lands.
 
 ## 0.6.0 — 2026-08-06
 
