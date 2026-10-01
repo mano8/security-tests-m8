@@ -81,7 +81,7 @@ pygments==2.21.0
     #   rich
 pyjwt==2.14.0
     # via security-tests-m8 (pyproject.toml)
-pyparsing==3.3.2
+pyparsing==3.3.3
     # via pip-requirements-parser
 pytest==9.1.1
     # via
