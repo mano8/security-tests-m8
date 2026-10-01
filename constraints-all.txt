@@ -116,7 +116,7 @@ typing-extensions==4.16.0
     # via
     #   cyclonedx-python-lib
     #   mypy
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 
 # The following packages are considered to be unsafe in a requirements file:
