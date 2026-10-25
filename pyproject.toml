@@ -31,10 +31,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Install every optional feature. This package has none today — everything the
-# suites need is a core dependency — but CI and downstream installs target
-# `.[all,dev]` fleet-wide, so the extra must resolve rather than warn.
-all = []
+# Install every optional feature (today: `ai`). CI and downstream installs
+# target `.[all,dev]` fleet-wide.
+all = [
+    "ai-sdk-m8[jobcontext]>=0.2.0",
+]
+# The AI gateway suites: job contexts are signed through ai-sdk-m8's public
+# primitive with the stack's test issuer seed.
+ai = [
+    "ai-sdk-m8[jobcontext]>=0.2.0",
+]
 dev = [
     "bandit>=1.9.4",
     "mypy>=2.1.0",
@@ -121,6 +127,7 @@ markers = [
     "live_stateless: stateless token-mode live security test",
     "live_hybrid: hybrid token-mode live security test",
     "live_deployment: deployment preflight/static live security test",
+    "live_ai_gateway: AI gateway live security test",
     "require_algorithm(*names): skip unless detected JWT alg matches",
     "require_token_mode(*names): skip unless detected token mode matches",
     "require_redis: skip unless health reports Redis available",
@@ -136,6 +143,9 @@ omit = [
     "security_tests_m8/_requests.py",
     "security_tests_m8/full_security.py",
     "security_tests_m8/plugin.py",
+    "security_tests_m8/_ai_fixtures.py",
+    "security_tests_m8/_ai_gateway.py",
+    "security_tests_m8/ai_gateway_security.py",
     "security_tests_m8/suites/*",
 ]
 

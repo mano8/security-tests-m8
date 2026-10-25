@@ -63,6 +63,21 @@ def test_every_exported_suite_is_selected_by_the_live_marker() -> None:
             {"live", "live_security", "live_deployment"},
         ),
         ("CrossServiceTokenSuite", {"live", "live_asymmetric", "require_algorithm"}),
+        ("AiGatewayIngressSuite", {"live", "live_security", "live_ai_gateway"}),
+        *[
+            (name, {"live", "live_security", "live_ai_gateway", "destructive"})
+            for name in (
+                "AiGatewayContextSuite",
+                "AiGatewayDestinationSuite",
+                "AiGatewaySecretsSuite",
+                "AiGatewayPolicySuite",
+                "AiGatewayUserScopeSuite",
+                "AiGatewayBootSuite",
+                "AiGatewaySettlementSuite",
+                "AiGatewayReplicaSuite",
+                "AiGatewayRestoreSuite",
+            )
+        ],
     ],
 )
 def test_suite_marks_are_exact(suite_name: str, expected: set[str]) -> None:

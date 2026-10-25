@@ -1,5 +1,17 @@
 """Reusable live security suite classes."""
 
+from security_tests_m8.suites.ai_gateway import (
+    AiGatewayBootSuite,
+    AiGatewayContextSuite,
+    AiGatewayDestinationSuite,
+    AiGatewayIngressSuite,
+    AiGatewayPolicySuite,
+    AiGatewayReplicaSuite,
+    AiGatewayRestoreSuite,
+    AiGatewaySecretsSuite,
+    AiGatewaySettlementSuite,
+    AiGatewayUserScopeSuite,
+)
 from security_tests_m8.suites.algorithms import (
     AsymmetricJWTSuite,
     CrossServiceTokenSuite,
@@ -39,6 +51,16 @@ from security_tests_m8.suites.universal import (
 )
 
 __all__ = [
+    "AiGatewayBootSuite",
+    "AiGatewayContextSuite",
+    "AiGatewayDestinationSuite",
+    "AiGatewayIngressSuite",
+    "AiGatewayPolicySuite",
+    "AiGatewayReplicaSuite",
+    "AiGatewayRestoreSuite",
+    "AiGatewaySecretsSuite",
+    "AiGatewaySettlementSuite",
+    "AiGatewayUserScopeSuite",
     "ApiKeyRedisDegradedSuite",
     "ApiKeySuite",
     "AsymmetricJWTSuite",

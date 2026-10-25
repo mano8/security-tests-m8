@@ -21,6 +21,13 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from security_tests_m8 import _availability
+from security_tests_m8._ai_fixtures import (  # noqa: F401 - fixtures the plugin registers
+    ai_gateway,
+    ai_operator,
+    ai_replicas,
+    ai_stub,
+    ai_world,
+)
 from security_tests_m8._config import configure_from_env, get_config
 from security_tests_m8._detection import StackInfo, detect_stack
 from security_tests_m8._preflight import PreflightError, run_live_preflight
@@ -169,6 +176,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "live_stateless": "stateless token-mode live security test",
         "live_hybrid": "hybrid token-mode live security test",
         "live_deployment": "deployment preflight/static live security test",
+        "live_ai_gateway": "AI gateway live security test",
         "require_algorithm(*names)": "skip unless detected JWT alg matches",
         "require_token_mode(*names)": "skip unless detected token mode matches",
         "require_redis": "skip unless health reports Redis available",
