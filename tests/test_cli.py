@@ -391,3 +391,35 @@ def test_scan_release_warnings_with_strict_fails(
     assert "FAIL release-hygiene - blocked artifacts found" in captured.out
     assert "because --strict-warnings is enabled" in captured.out
     assert "Required action: resolve every WARNING finding" in captured.out
+
+
+def test_run_target_ai_gateway_runs_the_gateway_module(
+    tmp_path: Path, monkeypatch
+) -> None:
+    modules: list[str] = []
+
+    def fake_pytest_main(args: list[str]) -> int:
+        modules.append(Path(args[0]).read_text(encoding="utf-8"))
+        return 0
+
+    monkeypatch.setattr("security_tests_m8.cli.pytest.main", fake_pytest_main)
+
+    code = main(
+        ["run", "--target", "ai-gateway", "--env-file", str(tmp_path / "x.env")]
+    )
+
+    assert code == 0
+    assert "security_tests_m8.ai_gateway_security import *" in modules[0]
+
+
+def test_run_target_defaults_to_the_full_suite(tmp_path: Path, monkeypatch) -> None:
+    modules: list[str] = []
+
+    def fake_pytest_main(args: list[str]) -> int:
+        modules.append(Path(args[0]).read_text(encoding="utf-8"))
+        return 0
+
+    monkeypatch.setattr("security_tests_m8.cli.pytest.main", fake_pytest_main)
+
+    assert main(["run", "--env-file", str(tmp_path / "x.env")]) == 0
+    assert "security_tests_m8.full_security import *" in modules[0]

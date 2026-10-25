@@ -25,6 +25,13 @@ def _has_marker_expression(args: list[str]) -> bool:
     return "-m" in args or any(arg.startswith("-m=") for arg in args)
 
 
+#: The packaged test module each ``run --target`` executes.
+RUN_TARGETS = {
+    "full": "security_tests_m8.full_security",
+    "ai-gateway": "security_tests_m8.ai_gateway_security",
+}
+
+
 def _run(args: argparse.Namespace) -> int:
     configure_from_env(env_file=args.env_file, override_env_file=False)
     pytest_args = _strip_separator(list(args.pytest_args))
@@ -39,7 +46,7 @@ def _run(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="security-tests-m8-") as tmp:
         test_module = Path(tmp) / "test_full_security.py"
         test_module.write_text(
-            "from security_tests_m8.full_security import *  # noqa: F401,F403\n",
+            f"from {RUN_TARGETS[args.target]} import *  # noqa: F401,F403\n",
             encoding="utf-8",
         )
         return pytest.main([str(test_module), *pytest_args])
@@ -241,6 +248,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Run destructive tests that mutate live auth, session, or "
             "rate-limit state. By default CLI run excludes them."
+        ),
+    )
+    run.add_argument(
+        "--target",
+        choices=sorted(RUN_TARGETS),
+        default="full",
+        help=(
+            "Packaged suite to run: 'full' (auth stack and its consumers, the "
+            "default) or 'ai-gateway' (an AI gateway stack, LIVE_TEST_AI_*)."
         ),
     )
     run.add_argument(
