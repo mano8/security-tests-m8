@@ -539,3 +539,133 @@ def test_configure_copies_cross_service_endpoint_mapping() -> None:
 
     assert config.cross_service_endpoints == source
     assert config.cross_service_endpoints is not source
+
+
+_AI_ENV = {
+    "LIVE_TEST_AI_BASE": "http://ai_gateway:8000/ai/",
+    "LIVE_TEST_AI_PUBLIC_PREFIX": "/gw/",
+    "LIVE_TEST_AI_CLIENT_ID": "suite-client",
+    "LIVE_TEST_AI_CLIENT_SECRET": "client-value",
+    "LIVE_TEST_AI_HEALTH_DETAIL_CREDENTIAL": "detail-value",
+    "LIVE_TEST_AI_METRICS_CREDENTIAL": "scrape-value",
+    "LIVE_TEST_AI_PRODUCTION": "false",
+    "LIVE_TEST_AI_STUB_BASE": "http://ollama:11434/",
+    "LIVE_TEST_AI_STUB_PROVIDER_URL": "http://stub:11434/",
+    "LIVE_TEST_AI_STUB_CONTROL_TOKEN": "control-value",
+    "LIVE_TEST_AI_COMPOSE_PROJECT": "ai-gateway-encrypted-db-m8",
+    "LIVE_TEST_AI_DB_SERVICE": "db",
+    "LIVE_TEST_AI_DB_NAME": "gateway_db",
+    "LIVE_TEST_AI_AUTH_DB_NAME": "issuer_db",
+    "LIVE_TEST_CONTAINER_ENGINE": "podman",
+    "LIVE_TEST_AI_TENANT_DAILY_BUDGET_UNITS": "100000",
+    "LIVE_TEST_AI_MAX_INFLIGHT_PER_CLIENT": "16",
+}
+
+
+def test_from_env_parses_the_ai_gateway_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, value in _AI_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("LIVE_TEST_AI_ISSUER_SEED_FILE", str(tmp_path / "seed"))
+
+    config = LiveTestConfig.from_env()
+
+    assert config.ai_base_url == "http://ai_gateway:8000/ai"
+    assert config.ai_public_prefix == "gw"
+    assert config.ai_client_id == "suite-client"
+    assert config.ai_issuer_seed_file == (tmp_path / "seed").resolve()
+    assert config.ai_production is False
+    assert config.ai_stub_base_url == "http://ollama:11434"
+    assert config.ai_stub_gateway_url() == "http://stub:11434"
+    assert config.ai_compose_project == "ai-gateway-encrypted-db-m8"
+    assert (config.ai_db_service, config.ai_db_name, config.ai_auth_db_name) == (
+        "db",
+        "gateway_db",
+        "issuer_db",
+    )
+    assert config.container_engine == "podman"
+    assert config.ai_tenant_daily_budget_units == 100000
+    assert config.ai_max_inflight_per_client == 16
+
+
+def test_ai_gateway_target_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (*_AI_ENV, "LIVE_TEST_AI_ISSUER_SEED_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+    config = LiveTestConfig.from_env()
+
+    assert config.ai_base_url is None
+    assert config.ai_public_prefix == "ai"
+    assert config.ai_client_id == "security-tests"
+    assert config.ai_issuer_seed_file is None
+    assert config.ai_production is True
+    assert config.ai_stub_gateway_url() is None
+    assert config.container_engine == "docker"
+    assert config.ai_tenant_daily_budget_units is None
+    assert config.ai_service_client_headers() == {}
+    assert config.ai_health_detail_headers() == {}
+    assert config.ai_metrics_headers() == {}
+    assert config.ai_stub_control_headers() == {}
+
+
+def test_ai_gateway_header_helpers() -> None:
+    config = LiveTestConfig(
+        ai_client_id="suite-client",
+        ai_client_secret="client-value",
+        ai_health_detail_credential="detail-value",
+        ai_metrics_credential="scrape-value",
+        ai_stub_control_token="control-value",
+    )
+
+    assert config.ai_service_client_headers() == {
+        INTERNAL_CLIENT_HEADER: "suite-client",
+        INTERNAL_TOKEN_HEADER: "client-value",
+    }
+    assert config.ai_health_detail_headers() == {INTERNAL_TOKEN_HEADER: "detail-value"}
+    assert config.ai_metrics_headers() == {"Authorization": "Bearer scrape-value"}
+    assert config.ai_stub_control_headers() == {"X-Stub-Control": "control-value"}
+
+
+def test_ai_public_base_follows_the_public_entrypoint() -> None:
+    edge = LiveTestConfig(public_base_url="https://edge:4431/", ai_public_prefix="/ai/")
+    none = LiveTestConfig(public_base_url=None)
+
+    assert edge.normalized().ai_public_base_url() == "https://edge:4431/ai"
+    assert none.ai_public_base_url() is None
+
+
+def test_ai_stub_gateway_url_prefers_the_provider_view() -> None:
+    same = LiveTestConfig(ai_stub_base_url="http://ollama:11434")
+    other = LiveTestConfig(
+        ai_stub_base_url="http://127.0.0.1:11434",
+        ai_stub_provider_url="http://ollama:11434",
+    )
+
+    assert same.ai_stub_gateway_url() == "http://ollama:11434"
+    assert other.ai_stub_gateway_url() == "http://ollama:11434"
+
+
+def test_configure_resolves_a_string_seed_path(tmp_path: Path) -> None:
+    config = configure(ai_issuer_seed_file=str(tmp_path / "seed"))
+
+    try:
+        assert config.ai_issuer_seed_file == (tmp_path / "seed").resolve()
+    finally:
+        configure(ai_issuer_seed_file=None)
+
+
+def test_configure_from_env_keeps_ai_defaults_unless_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LIVE_TEST_AI_BASE", raising=False)
+    env_file = tmp_path / "live.env"
+    env_file.write_text("LIVE_TEST_AI_BASE=http://gw/ai\n", encoding="utf-8")
+
+    try:
+        config = configure_from_env(env_file, ai_client_id="default-client")
+        assert config.ai_base_url == "http://gw/ai"
+        assert config.ai_client_id == "default-client"
+    finally:
+        monkeypatch.delenv("LIVE_TEST_AI_BASE", raising=False)
+        configure(ai_base_url=None, ai_client_id="security-tests")

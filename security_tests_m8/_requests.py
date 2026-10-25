@@ -67,6 +67,7 @@ def install_live_tls_defaults(config: LiveTestConfig) -> None:
         config.auth_health_url,
         config.service_base_url,
         config.public_base_url,
+        config.ai_base_url,
         *config.service_base_urls.values(),
     }
     _TLS_PREFIXES = tuple(

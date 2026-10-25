@@ -73,10 +73,25 @@ def _env_endpoint_str_map(name: str) -> dict[str, str]:
     return {str(service): str(endpoint) for service, endpoint in decoded.items()}
 
 
+def _env_optional_int(name: str) -> int | None:
+    raw = os.getenv(name)
+    return int(raw) if raw else None
+
+
+def _env_path(name: str) -> Path | None:
+    raw = os.getenv(name)
+    return Path(raw).resolve() if raw else None
+
+
+def _env_url(name: str) -> str | None:
+    return os.getenv(name, "").rstrip("/") or None
+
+
 DEFAULT_PLACEHOLDER_VALUE = "changethis"
 
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 INTERNAL_CLIENT_HEADER = "X-Internal-Client"
+STUB_CONTROL_HEADER = "X-Stub-Control"
 
 _FIELD_ENV_NAMES = {
     "auth_base_url": ("LIVE_TEST_AUTH_BASE",),
@@ -104,7 +119,55 @@ _FIELD_ENV_NAMES = {
     "media_internal_token": ("LIVE_TEST_MEDIA_INTERNAL_TOKEN",),
     "api_key": ("LIVE_TEST_API_KEY",),
     "api_key_strict_rate_limit": ("LIVE_TEST_API_KEY_STRICT_RATE_LIMIT",),
+    "ai_base_url": ("LIVE_TEST_AI_BASE",),
+    "ai_public_prefix": ("LIVE_TEST_AI_PUBLIC_PREFIX",),
+    "ai_client_id": ("LIVE_TEST_AI_CLIENT_ID",),
+    "ai_client_secret": ("LIVE_TEST_AI_CLIENT_SECRET",),
+    "ai_issuer_seed_file": ("LIVE_TEST_AI_ISSUER_SEED_FILE",),
+    "ai_health_detail_credential": ("LIVE_TEST_AI_HEALTH_DETAIL_CREDENTIAL",),
+    "ai_metrics_credential": ("LIVE_TEST_AI_METRICS_CREDENTIAL",),
+    "ai_production": ("LIVE_TEST_AI_PRODUCTION",),
+    "ai_stub_base_url": ("LIVE_TEST_AI_STUB_BASE",),
+    "ai_stub_provider_url": ("LIVE_TEST_AI_STUB_PROVIDER_URL",),
+    "ai_stub_control_token": ("LIVE_TEST_AI_STUB_CONTROL_TOKEN",),
+    "ai_compose_project": ("LIVE_TEST_AI_COMPOSE_PROJECT",),
+    "ai_db_service": ("LIVE_TEST_AI_DB_SERVICE",),
+    "ai_db_name": ("LIVE_TEST_AI_DB_NAME",),
+    "ai_auth_db_name": ("LIVE_TEST_AI_AUTH_DB_NAME",),
+    "container_engine": ("LIVE_TEST_CONTAINER_ENGINE",),
+    "ai_tenant_daily_budget_units": ("LIVE_TEST_AI_TENANT_DAILY_BUDGET_UNITS",),
+    "ai_max_inflight_per_client": ("LIVE_TEST_AI_MAX_INFLIGHT_PER_CLIENT",),
 }
+
+
+def _ai_env_fields() -> dict[str, Any]:
+    """Read the AI gateway target's fields (``LIVE_TEST_AI_*``)."""
+    return {
+        "ai_base_url": _env_url("LIVE_TEST_AI_BASE"),
+        "ai_public_prefix": os.getenv("LIVE_TEST_AI_PUBLIC_PREFIX", "ai"),
+        "ai_client_id": os.getenv("LIVE_TEST_AI_CLIENT_ID", "security-tests"),
+        "ai_client_secret": os.getenv("LIVE_TEST_AI_CLIENT_SECRET"),
+        "ai_issuer_seed_file": _env_path("LIVE_TEST_AI_ISSUER_SEED_FILE"),
+        "ai_health_detail_credential": os.getenv(
+            "LIVE_TEST_AI_HEALTH_DETAIL_CREDENTIAL"
+        ),
+        "ai_metrics_credential": os.getenv("LIVE_TEST_AI_METRICS_CREDENTIAL"),
+        "ai_production": _env_bool("LIVE_TEST_AI_PRODUCTION", True),
+        "ai_stub_base_url": _env_url("LIVE_TEST_AI_STUB_BASE"),
+        "ai_stub_provider_url": _env_url("LIVE_TEST_AI_STUB_PROVIDER_URL"),
+        "ai_stub_control_token": os.getenv("LIVE_TEST_AI_STUB_CONTROL_TOKEN"),
+        "ai_compose_project": os.getenv("LIVE_TEST_AI_COMPOSE_PROJECT"),
+        "ai_db_service": os.getenv("LIVE_TEST_AI_DB_SERVICE", "m8_db"),
+        "ai_db_name": os.getenv("LIVE_TEST_AI_DB_NAME", "ai_db"),
+        "ai_auth_db_name": os.getenv("LIVE_TEST_AI_AUTH_DB_NAME", "auth_db"),
+        "container_engine": os.getenv("LIVE_TEST_CONTAINER_ENGINE", "docker"),
+        "ai_tenant_daily_budget_units": _env_optional_int(
+            "LIVE_TEST_AI_TENANT_DAILY_BUDGET_UNITS"
+        ),
+        "ai_max_inflight_per_client": _env_optional_int(
+            "LIVE_TEST_AI_MAX_INFLIGHT_PER_CLIENT"
+        ),
+    }
 
 
 @dataclass(frozen=True)
@@ -136,6 +199,24 @@ class LiveTestConfig:
     media_internal_token: str | None = None
     api_key: str | None = None
     api_key_strict_rate_limit: bool = False
+    ai_base_url: str | None = None
+    ai_public_prefix: str = "ai"
+    ai_client_id: str = "security-tests"
+    ai_client_secret: str | None = None
+    ai_issuer_seed_file: Path | None = None
+    ai_health_detail_credential: str | None = None
+    ai_metrics_credential: str | None = None
+    ai_production: bool = True
+    ai_stub_base_url: str | None = None
+    ai_stub_provider_url: str | None = None
+    ai_stub_control_token: str | None = None
+    ai_compose_project: str | None = None
+    ai_db_service: str = "m8_db"
+    ai_db_name: str = "ai_db"
+    ai_auth_db_name: str = "auth_db"
+    container_engine: str = "docker"
+    ai_tenant_daily_budget_units: int | None = None
+    ai_max_inflight_per_client: int | None = None
 
     @classmethod
     def from_env(cls) -> LiveTestConfig:
@@ -187,6 +268,7 @@ class LiveTestConfig:
             api_key_strict_rate_limit=_env_bool(
                 "LIVE_TEST_API_KEY_STRICT_RATE_LIMIT", False
             ),
+            **_ai_env_fields(),
         ).normalized()
 
     def normalized(self) -> LiveTestConfig:
@@ -227,6 +309,10 @@ class LiveTestConfig:
             protected_endpoints=protected_endpoints,
             cross_service_endpoints=cross_service_endpoints,
             media_public_prefix=self.media_public_prefix.strip("/"),
+            ai_base_url=_strip_url(self.ai_base_url),
+            ai_public_prefix=self.ai_public_prefix.strip("/"),
+            ai_stub_base_url=_strip_url(self.ai_stub_base_url),
+            ai_stub_provider_url=_strip_url(self.ai_stub_provider_url),
         )
 
     def resolve_service_base_url(self, service: str | None = None) -> str:
@@ -388,6 +474,57 @@ class LiveTestConfig:
         """
         return self.api_key_strict_rate_limit
 
+    def ai_public_base_url(self) -> str | None:
+        """Return the AI gateway's base on the public entrypoint.
+
+        The public router mounts the gateway under ``ai_public_prefix``
+        (default ``ai``) of ``LIVE_TEST_PUBLIC_BASE``. ``None`` when no public
+        entrypoint is configured, so ingress probes skip instead of guessing.
+        """
+        if self.public_base_url is None:
+            return None
+        return f"{self.public_base_url}/{self.ai_public_prefix}"
+
+    def ai_service_client_headers(self) -> dict[str, str]:
+        """Return the suite's service-client headers for the AI gateway.
+
+        ``X-Internal-Client`` names ``LIVE_TEST_AI_CLIENT_ID`` (the stacks
+        register ``security-tests``) and ``X-Internal-Token`` carries its
+        plaintext secret. Empty when no secret is configured.
+        """
+        if not self.ai_client_secret:
+            return {}
+        return {
+            INTERNAL_CLIENT_HEADER: self.ai_client_id,
+            INTERNAL_TOKEN_HEADER: self.ai_client_secret,
+        }
+
+    def ai_health_detail_headers(self) -> dict[str, str]:
+        """Return the header that unlocks the gateway's ``/health`` detail."""
+        if not self.ai_health_detail_credential:
+            return {}
+        return {INTERNAL_TOKEN_HEADER: self.ai_health_detail_credential}
+
+    def ai_metrics_headers(self) -> dict[str, str]:
+        """Return the bearer header the gateway's metrics scrape guard accepts."""
+        if not self.ai_metrics_credential:
+            return {}
+        return {"Authorization": f"Bearer {self.ai_metrics_credential}"}
+
+    def ai_stub_gateway_url(self) -> str | None:
+        """Return the stub provider's ``base_url`` as the gateway reaches it.
+
+        ``LIVE_TEST_AI_STUB_PROVIDER_URL`` when the gateway's view differs
+        from the suite's (another network name), else ``LIVE_TEST_AI_STUB_BASE``.
+        """
+        return self.ai_stub_provider_url or self.ai_stub_base_url
+
+    def ai_stub_control_headers(self) -> dict[str, str]:
+        """Return the stub provider's control header, when a token is set."""
+        if not self.ai_stub_control_token:
+            return {}
+        return {STUB_CONTROL_HEADER: self.ai_stub_control_token}
+
     def legacy_internal_headers(self) -> dict[str, str]:
         """Return the legacy ``X-Internal-Token``-only private-API headers.
 
@@ -398,6 +535,10 @@ class LiveTestConfig:
         if not self.private_api_secret:
             return {}
         return {INTERNAL_TOKEN_HEADER: self.private_api_secret}
+
+
+def _strip_url(url: str | None) -> str | None:
+    return url.rstrip("/") if url else None
 
 
 _CONFIG = LiveTestConfig.from_env()
@@ -413,6 +554,8 @@ def configure(**kwargs: object) -> LiveTestConfig:
         data["repo_root"] = Path(str(data["repo_root"])).resolve()
     if isinstance(data.get("deployment_root"), str):
         data["deployment_root"] = Path(str(data["deployment_root"])).resolve()
+    if isinstance(data.get("ai_issuer_seed_file"), str):
+        data["ai_issuer_seed_file"] = Path(str(data["ai_issuer_seed_file"])).resolve()
     if isinstance(data.get("service_base_urls"), Mapping):
         data["service_base_urls"] = dict(data["service_base_urls"])
     if isinstance(data.get("cross_service_endpoints"), Mapping):
