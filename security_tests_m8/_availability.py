@@ -12,6 +12,10 @@ The guard is armed only for the *call* phase of a live test (see
 ``plugin.pytest_runtest_call``). Preflight and fixture setup keep their own
 explicit error handling and are never silently turned into skips.
 
+A ``502``/``504`` whose body is a typed JSON error (an object with a string
+``code``) is the target's own answer about an upstream it calls, not a proxy
+failure, so it is passed through too.
+
 ``503`` is deliberately NOT treated as unavailability: several suites assert
 ``503`` as the *secure* fail-closed response (API-key verification while Redis is
 down), so it is a real security signal rather than noise.
@@ -43,6 +47,22 @@ def guard_active() -> bool:
     return _guard_active
 
 
+def _typed_application_error(response: requests.Response) -> bool:
+    """Whether a 502/504 carries an application's typed error body.
+
+    A service that itself answers ``502``/``504`` for an upstream it calls —
+    the AI gateway's ``{"code": "response_too_large", ...}`` when its provider
+    misbehaves — is a reachable target giving a real security answer. Only a
+    body that is a JSON object with a string ``code`` qualifies; a proxy's
+    error page never does.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and isinstance(body.get("code"), str)
+
+
 def unavailable_reason(response: requests.Response) -> str | None:
     """Return a human reason if *response* proves the target was unreachable.
 
@@ -51,7 +71,7 @@ def unavailable_reason(response: requests.Response) -> str | None:
     outcomes are never masked.
     """
     status = response.status_code
-    if status in _GATEWAY_DOWN_STATUSES:
+    if status in _GATEWAY_DOWN_STATUSES and not _typed_application_error(response):
         return f"gateway HTTP {status} — backend unreachable behind the proxy"
     if status == 404:
         body = (response.text or "").strip().lower()

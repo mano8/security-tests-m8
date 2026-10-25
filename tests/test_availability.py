@@ -28,6 +28,17 @@ def test_gateway_down_statuses_are_unavailable(status: int) -> None:
     assert str(status) in reason
 
 
+@pytest.mark.parametrize("status", [502, 504])
+def test_typed_application_error_is_not_unavailable(status: int) -> None:
+    body = '{"code":"response_too_large","request_id":"x"}'
+    assert _availability.unavailable_reason(_response(status, body)) is None
+
+
+@pytest.mark.parametrize("body", ['{"detail":"Bad Gateway"}', '["code"]', "<html>"])
+def test_untyped_gateway_errors_stay_unavailable(body: str) -> None:
+    assert _availability.unavailable_reason(_response(502, body)) is not None
+
+
 def test_traefik_no_route_404_is_unavailable() -> None:
     reason = _availability.unavailable_reason(_response(404, "404 page not found\n"))
     assert reason is not None
