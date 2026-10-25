@@ -26,6 +26,7 @@ Reusable live security tests for FastAPI M8 auth and service stacks.
 - [CLI vs pytest Mode](#cli-vs-pytest-mode)
 - [Single-Service Usage](#single-service-usage)
 - [Multi-Service Usage](#multi-service-usage)
+- [AI Gateway Suite](#ai-gateway-suite)
 - [Available Suites](#available-suites)
 - [Full Auth-Service Example](#full-auth-service-example)
 - [Pytest Markers](#pytest-markers)
@@ -362,6 +363,115 @@ export LIVE_TEST_CROSS_SERVICE_ENDPOINTS='{"reparto":"/academic-years/"}'
 
 There is deliberately no fallback route. A guessed path that a consumer does not publish answers with an application `404`, which is not a refusal — probing it would report a missing route as an accepted forgery.
 
+## AI Gateway Suite
+
+`security-tests-m8 run --target ai-gateway` runs the live suite of an
+`ai-gateway-m8` stack on its own, without the media services. Install the
+`ai` extra: it signs job contexts through `ai-sdk-m8`'s public primitive.
+
+```bash
+pip install "security-tests-m8[ai]"
+security-tests-m8 run --target ai-gateway --env-file ai-gateway.env --include-destructive
+```
+
+The suite needs three things from the stack, all addressed by configuration:
+
+1. **Its own service client.** The gateway's compose stacks register a
+   `security-tests` client in `AI_SERVICE_CLIENTS`, holding every execute scope
+   and `job-context:issue`, keyed to a test issuer seed (`./secrets/test_client_secret`
+   and `./secrets/test_issuer_seed`). The suite mints every job context with
+   that seed. A deployment that serves real callers removes that client.
+2. **The stub provider.** Provider calls go to
+   [`security_tests_m8/ai_stub_provider.py`](security_tests_m8/ai_stub_provider.py),
+   an OpenAI-compatible stub with only the standard library as a dependency.
+   It records a fingerprint of each request's credential, never the value, and
+   its control API (`/__stub/`) sets the keys it accepts and its answer mode:
+   `ok`, `gzip_bomb`, `deep_json`, `status:<code>`, `throttle:<seconds>` or
+   `delay:<seconds>`. Run it as the stack's allowlisted local provider name, on
+   the network the gateway reaches local providers through:
+
+   ```bash
+   docker run -d --name ai-stub --network <project>_ai_net --network-alias ollama \
+       --read-only --cap-drop ALL --security-opt no-new-privileges:true --user 1000:1000 \
+       -e STUB_CONTROL_TOKEN=<token> --entrypoint python ai-gateway-m8:stack \
+       -c "$(cat security_tests_m8/ai_stub_provider.py)" --port 11434
+   ```
+
+   Never expose the stub outside the stack under test.
+3. **Container access** for the database, log and lifecycle rows: the compose
+   project name and a container engine CLI. The suite finds containers by their
+   compose labels, runs `psql`/`pg_dump` in the database container and starts
+   copies of the gateway's services (same image, configuration and secrets,
+   read-only, no capabilities, labelled as this suite's own). Without it those
+   rows skip.
+
+| Variable | Purpose |
+| --- | --- |
+| `LIVE_TEST_AI_BASE` | The gateway on the in-network path, with its prefix (`http://ai_gateway:8000/ai`, or `http://127.0.0.1:18080/ai` through the stack's `api` entrypoint) |
+| `LIVE_TEST_PUBLIC_BASE`, `LIVE_TEST_AI_PUBLIC_PREFIX` | The public router and the gateway's prefix on it (default `ai`), for the ingress rows; `LIVE_TEST_PUBLIC_TLS_VERIFY` names the stack CA |
+| `LIVE_TEST_AI_CLIENT_ID`, `LIVE_TEST_AI_CLIENT_SECRET` | The suite's service client (default id `security-tests`) |
+| `LIVE_TEST_AI_ISSUER_SEED_FILE` | The test issuer's Ed25519 seed file |
+| `LIVE_TEST_AI_STUB_BASE`, `LIVE_TEST_AI_STUB_CONTROL_TOKEN` | The stub as the suite reaches it, and its control token |
+| `LIVE_TEST_AI_STUB_PROVIDER_URL` | The stub as the gateway reaches it, when that differs (default: `LIVE_TEST_AI_STUB_BASE`) |
+| `LIVE_TEST_AI_HEALTH_DETAIL_CREDENTIAL`, `LIVE_TEST_AI_METRICS_CREDENTIAL` | The gateway's health-detail and metrics-scrape credentials |
+| `LIVE_TEST_AI_PRODUCTION` | `false` on a development stack, where docs may be served (default `true`) |
+| `LIVE_TEST_AI_COMPOSE_PROJECT`, `LIVE_TEST_CONTAINER_ENGINE` | Container access (engine default `docker`) |
+| `LIVE_TEST_AI_DB_SERVICE`, `LIVE_TEST_AI_DB_NAME`, `LIVE_TEST_AI_AUTH_DB_NAME` | The database service and the gateway's and issuer's databases (defaults `m8_db`, `ai_db`, `auth_db`) |
+| `LIVE_TEST_AI_TENANT_DAILY_BUDGET_UNITS`, `LIVE_TEST_AI_MAX_INFLIGHT_PER_CLIENT` | The stack's `AI_TENANT_DAILY_BUDGET_UNITS` and `AI_MAX_INFLIGHT_PER_CLIENT`, for the two-replica overspend and in-flight rows |
+| `LIVE_TEST_AUTH_BASE`, `LIVE_TEST_ADMIN_EMAIL`, `LIVE_TEST_ADMIN_PASSWORD` | The issuer and its superuser |
+
+What the suite proves, by class:
+
+- `AiGatewayIngressSuite` — the public router stops `/ai/v1/execute`,
+  `/ai/v1/internal`, metrics, docs and OpenAPI after path normalisation, strips
+  the service-client headers, and keeps `/health` shallow; the gateway itself
+  serves no docs under production and gates metrics and health detail.
+- `AiGatewayContextSuite` — service-client authentication and the job-context
+  matrix: missing, replayed (also concurrently), expired, not yet valid,
+  over-TTL, another installation's `aud`, another `azp` or `iss`, the wrong
+  capability or profile, a tampered signature, an unregistered or foreign key,
+  an oversized header, a user JWT on an execution route.
+- `AiGatewayDestinationSuite` — SSRF destinations refused at write time and at
+  call time, the endpoint frozen once a credential exists, a decompression bomb
+  and over-deep JSON refused typed, the schema refusing boundary and
+  credential-scope changes, the runtime role unable to rewrite audit rows.
+- `AiGatewaySecretsSuite` and the user-scope canary row — a used, rotated key
+  absent from the database dump, the logs, the metrics and the API.
+- `AiGatewayPolicySuite` — `rerank` never sent to an external profile (also
+  when the binding is repointed after the context was minted), non-public data
+  never sent to an external platform key, one tenant's invalid key leaving
+  another tenant's traffic flowing, a disabled explicit credential never
+  falling through to the global key, a throttled credential refused without a
+  provider call.
+- `AiGatewayUserScopeSuite` — personal BYOK enabled, a WRITER's own key through
+  its whole lifecycle, other users, the tenant's ADMIN and lower tiers refused,
+  the superuser's stop failing the user's next execution, user-binding
+  precedence.
+- `AiGatewayBootSuite` — web and scheduler refuse a database not at their
+  packaged schema head, and another installation's `AI_DEPLOYMENT_ID`.
+- `AiGatewaySettlementSuite` — a gateway killed after the provider received
+  the request settles `charged_uncertain` exactly once under a new scheduler
+  lease while the paused former leader commits nothing; a Vault stalled before
+  the dispatch marker releases the execution (Vault stacks).
+- `AiGatewayReplicaSuite` — with a second web replica: a cooldown honoured by
+  both replicas, a concurrent overspend of a tenant's budget refused, the
+  client's in-flight cap held.
+- `AiGatewayRestoreSuite` — a snapshot restore detected, reconciled and
+  ratified, restoring only what is re-confirmed.
+
+Every class but the ingress one is `destructive`: it creates providers,
+models, profiles, credentials, bindings and throwaway issuer accounts (the
+accounts are deleted at teardown; providers and models cannot be deleted
+through the API and stay behind, under unique `t88-` names), kills and pauses
+containers, and changes database state. Run it against a test stack only. The
+restore row runs last because ratification leaves the deployment's budget
+hold in force until the next UTC day: every budgeted execution on that stack
+is refused with `quota_exceeded` until then.
+
+The cross-service rows (contexts minted by the media service, data classes
+derived from live objects, the parser sandbox, storage identities,
+provenance) need the integrated media stack and are absent here by design.
+
 ## Available Suites
 
 Universal auth and HTTP security suites:
@@ -404,6 +514,19 @@ Generic service and deployment suites:
 - `ServiceInfoDisclosureSuite`
 - `ConfiguredServiceInfoDisclosureSuite`
 - `DeploymentPreflightSuite`
+
+AI gateway suites ([AI Gateway Suite](#ai-gateway-suite)):
+
+- `AiGatewayIngressSuite`
+- `AiGatewayContextSuite`
+- `AiGatewayDestinationSuite`
+- `AiGatewaySecretsSuite`
+- `AiGatewayPolicySuite`
+- `AiGatewayUserScopeSuite`
+- `AiGatewayBootSuite`
+- `AiGatewaySettlementSuite`
+- `AiGatewayReplicaSuite`
+- `AiGatewayRestoreSuite`
 
 ## Full Auth-Service Example
 
@@ -534,6 +657,7 @@ The plugin registers these markers:
 - `live_stateless`
 - `live_hybrid`
 - `live_deployment`
+- `live_ai_gateway`
 - `require_algorithm(*names)`
 - `require_token_mode(*names)`
 - `require_redis`
@@ -568,6 +692,9 @@ These fixtures are available in consumer tests after the package is installed:
 - `service_base_urls`
 - `service_base_url`
 - `service_url`
+- `ai_gateway`, `ai_operator`, `ai_world`, `ai_stub`, `ai_replicas` — the AI
+  gateway target, container access, the session's gateway objects, the stub
+  provider and a second web replica ([AI Gateway Suite](#ai-gateway-suite))
 
 Example:
 
@@ -597,7 +724,7 @@ def test_custom_protected_route(service_url, admin_headers):
 - `LIVE_TEST_PRIVATE_API_CLIENT_ID` is the per-consumer id sent as `X-Internal-Client` alongside `X-Internal-Token` so private-API probes authenticate against a per-consumer issuer (fa-auth-m8 >= 1.0.0, no shared-secret fallback). Set it together with `LIVE_TEST_PRIVATE_API_SECRET` to also enable the F06 legacy-detection check (the retired `X-Internal-Token`-only shape must be rejected with 401). Leave it unset for legacy single-secret stacks.
 - `LIVE_TEST_INTERNAL_AUTH_BASE` is the internal service-to-service entrypoint that exposes `/private/*`. Hardened stacks block `/private` at the public edge (Traefik → 404), so the F06 legacy-shape rejection can only be observed against the internal entrypoint. Set it to that URL (e.g. `http://localhost:9000/user`) when `LIVE_TEST_AUTH_BASE` points at the public edge; it falls back to `LIVE_TEST_AUTH_BASE` when unset, which is correct for simple stacks whose base reaches private routes directly.
 - `LIVE_TEST_HEALTH_DETAIL_CREDENTIAL` unlocks the deep `/health` infrastructure detail body (token mode, Redis/DB reachability, degradation modes) used by stack detection and the token-mode / disclosure suites. fa-auth-m8 >= 1.0.0 gates that detail on a dedicated credential decoupled from `PRIVATE_API_SECRET` (plan 9.3), sent via `X-Internal-Token`. Set it to the stack's `HEALTH_DETAIL_CREDENTIAL` so those health-dependent tests can read what they need; the probes fall back to `LIVE_TEST_PRIVATE_API_SECRET` only for legacy stacks that still reuse it for the health gate.
-- **Unavailable services are skipped, not reported as failures.** If the reverse proxy returns `502`/`504` or Traefik's no-route `404 page not found`, or if the connection is dropped, the test is skipped rather than failing with a misleading security finding. `503` is excluded from this skip so the `ApiKeyRedisDegradedSuite` can still assert it as the secure fail-closed response.
+- **Unavailable services are skipped, not reported as failures.** If the reverse proxy returns `502`/`504` or Traefik's no-route `404 page not found`, or if the connection is dropped, the test is skipped rather than failing with a misleading security finding. `503` is excluded from this skip so the `ApiKeyRedisDegradedSuite` can still assert it as the secure fail-closed response, and so is a `502`/`504` whose body is a typed JSON error (an object with a string `code`): that is the target's own answer about an upstream it calls, such as the AI gateway refusing a hostile provider response.
 
 ## Workflow Policy Module
 

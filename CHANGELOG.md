@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.8.0 — unreleased
+
+### Added
+
+- **AI gateway live suite (`run --target ai-gateway`).** Ten reusable suite
+  classes for an `ai-gateway-m8` stack run on its own, without the media
+  services (`security_tests_m8/suites/ai_gateway.py`, packaged as
+  `security_tests_m8/ai_gateway_security.py`): ingress blocks and header
+  stripping, the service-client and job-context matrix, provider destinations
+  (SSRF at write and call time) and hostile provider answers, stored-secret
+  canaries, boundary and data-class policy, personal BYOK, boot refusals on a
+  foreign schema head or installation id, settlement after a killed web
+  process under a fenced scheduler lease, two-replica admission races, and
+  snapshot-restore detection through ratification. Job contexts are signed
+  with the stack's own test issuer seed through `ai-sdk-m8`'s public primitive
+  (new `ai` extra, also in `all`). Every class but the ingress one is
+  `destructive`. The cross-service rows stay with the integrated media stack.
+- **Stub AI provider (`security_tests_m8/ai_stub_provider.py`).** An
+  OpenAI-compatible provider with only the standard library as a dependency,
+  run on the stack's network under its allowlisted local-provider name. It
+  records a fingerprint of each request's credential (never the value) and
+  takes its accepted keys and answer mode (`ok`, `gzip_bomb`, `deep_json`,
+  `status:<code>`, `throttle:<seconds>`, `delay:<seconds>`) from a
+  token-guarded control API.
+- **Configuration** for the target: `LIVE_TEST_AI_*` (gateway base, public
+  prefix, service client, issuer seed file, stub, credentials, production
+  flag, compose project, database names, budget and in-flight values) and
+  `LIVE_TEST_CONTAINER_ENGINE`; the `live_ai_gateway` marker; the `ai_gateway`,
+  `ai_operator`, `ai_world`, `ai_stub` and `ai_replicas` fixtures.
+
+### Changed
+
+- **The availability guard passes typed `502`/`504` answers through.** A body
+  that is a JSON object with a string `code` is the target's own answer about
+  an upstream it calls (the gateway's `response_too_large`), not a proxy
+  failure, so it is no longer turned into a skip.
+- `constraints-all.txt` is compiled with `--extra=all` as well, pinning the
+  `ai-sdk-m8` dependency tree.
+
 ## 0.7.0 — 2026-09-14
 
 ### Added
